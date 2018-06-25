@@ -1,0 +1,13 @@
+cmake \
+-D Trilinos_USE_GNUINSTALLDIRS=TRUE \
+-D TPL_ENABLE_MPI=ON \
+-D MPI_BASE_DIR=/opt/local/ \
+-D Trilinos_ENABLE_Epetra=ON \
+-D Trilinos_ENABLE_AztecOO=ON \
+-D Trilinos_ENABLE_Ifpack=ON \
+-D Trilinos_ENABLE_Teuchos=ON \
+-D Trilinos_ENABLE_ML=ON \
+-D CMAKE_INSTALL_PREFIX=/Users/maxim/Pragma/Libs/Trilinos_12_13 \
+/Users/maxim/Pragma/Libs/Trilinos/raw
+
+make -j 4 install
