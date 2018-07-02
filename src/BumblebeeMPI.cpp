@@ -8,6 +8,8 @@
 
 #include <mpi.h>
 #include <stdio.h>
+#include <vector>
+#include <unordered_map>
 #include <Epetra_MpiComm.h>
 #include <Epetra_Map.h>
 #include <Epetra_Vector.h>
@@ -625,33 +627,141 @@ int main(int argc, char** argv) {
 //    }
 //    /* ********************************* */
 
-    if (A->Importer() != nullptr)
-        std::cout << "(" << myRank << ") A nums: " << A->Importer()->NumSend() << " " << A->Importer()->NumRecv() << "\n";
+    if (A->Importer() != nullptr) {
+//        std::cout << "(" << myRank << ") A "
+//                    << "NumSend : " << A->Importer()->NumSend() << "\n"
+//                    << "NumRecv : " << A->Importer()->NumRecv() << "\n"
+//                    << "NumRemoteIDs : " << A->Importer()->NumRemoteIDs() << "\n"
+//                    << "NumExportIDs : " << A->Importer()->NumExportIDs() << "\n";
+//
+//        std::cout << "(" << myRank << ") RemoteLIDs : ";
+//        for(int n = 0; n <A->Importer()->NumRemoteIDs(); ++n)
+//            std::cout << A->Importer()->RemoteLIDs()[n] << " ";
+//        std::cout << "\n";
+//
+//        std::cout << "(" << myRank << ") ExportLIDs : ";
+//        for(int n = 0; n <A->Importer()->NumExportIDs(); ++n)
+//            std::cout << A->Importer()->ExportLIDs()[n] << " ";
+//        std::cout << "\n";
+//
+//        std::cout << "(" << myRank << ") ExportPIDs : ";
+//        for(int n = 0; n <A->Importer()->NumExportIDs(); ++n)
+//            std::cout << A->Importer()->ExportPIDs()[n] << " ";
+//        std::cout << "\n";
+//
+//        std::cout << "(" << myRank << ") PermuteFromLIDs : ";
+//        for(int n = 0; n <A->Importer()->NumPermuteIDs(); ++n)
+//            std::cout << A->Importer()->PermuteFromLIDs()[n] << " ";
+//        std::cout << "\n";
+//
+//        std::cout << "(" << myRank << ") PermuteToLIDs : ";
+//        for(int n = 0; n <A->Importer()->NumPermuteIDs(); ++n)
+//            std::cout << A->Importer()->PermuteToLIDs()[n] << " ";
+//        std::cout << "\n";
+//        std::cout << std::endl;
 
+//        /*
+//         * Use two maps: one to store initially size of individual messages that should be sent,
+//         * another one to store messages themselves. Keys are pids which should receive messages.
+//         */
+//        /* Count how many data points should be sent to each process */
+//        std::unordered_map<int, int> count;
+//        std::unordered_map<int, int>::iterator it_c, it_c_end;
+//        for(int i = 0; i < A->Importer()->NumExportIDs(); i++)
+//            count[A->Importer()->ExportPIDs()[i]]++;
+//
+////        it_c = count.begin();
+////        it_c_end = count.end();
+////        for(; it_c != it_c_end; ++it_c)
+////            std::cout << "(" << myRank << ") Map : " << it_c->first << ": " << it_c->second << "\n";
+////        std::cout << "\n";
+//
+//        int *data = A->Importer()->ExportLIDs();
+//        int data_size = A->Importer()->NumExportIDs();
+//        std::unordered_map<int, std::vector<int> > snd_buf;
+//
+//        // Allocate memory for the sending map
+//        it_c = count.begin();
+//        for(int n = 0; n < count.size(); ++n) {
+//            snd_buf[it_c->first].resize(it_c->second);
+//            ++it_c;
+//        }
+//
+//        // Assign data to the sending map
+//        int offset = 0;
+//        std::unordered_map<int, std::vector<int> >::iterator it_d, it_d_end;
+//        it_d = snd_buf.begin();
+//        it_d_end = snd_buf.end();
+//
+//        // original data consists of chunks which we need to extract and send separately to each neighbor
+//        it_c = count.begin();
+//        it_c_end = count.end();
+//        for(int n = 0; n < data_size; ++n) {
+//            int pid = A->Importer()->ExportPIDs()[n];                                           // check out the pid
+//            it_d = snd_buf.find(pid);
+//            if (it_d != it_d_end) {                                                             // if pid found we are safe to go
+//                int chunk_size = it_d->second.size();                                           // get number of elements in a chunk
+//                memcpy(it_d->second.data(), data + offset, sizeof(int) * chunk_size);           // copy particular chunk from the original array
+//                n += chunk_size;
+//                offset += chunk_size;
+//            }
+//            else
+//                std::cout << "Error!" << "\n";
+//        }
+//
+////        std::sort(p.begin(), p.end(),
+////            [&](std::size_t i, std::size_t j){ return compare(vec[i], vec[j]); });
+//
+//        it_d = snd_buf.begin();
+//        it_d_end = snd_buf.end();
+//        for(; it_d != it_d_end; ++it_d) {
+//            std::sort(it_d->second.begin(), it_d->second.end());
+//            std::cout << "(" << myRank << ") Snd buf : " << it_d->first << ": ";
+//            for(int n = 0; n < it_d->second.size(); ++n)
+//                std::cout << it_d->second[n] << " ";
+//            std::cout << "\n";
+//        }
+        /* ******************** */
+
+//        int *export_lids = A->Importer()->ExportLIDs();
+//        std::vector<int> rcv(A->Importer()->NumRecv());
+//        int rcv_counter = 0;
+//
+//        MPI_Request send_request[A->Importer()->NumSend()];
+//        MPI_Request recv_request[A->Importer()->NumSend()];
+//        for(int n = 0; n < A->Importer()->NumSend(); ++n) {
+//            MPI_Isend(export_lids + n, 1, MPI_INT, A->Importer()->ExportPIDs()[n], 0, MPI_COMM_WORLD, &send_request[n]);
+//            MPI_Irecv(rcv.data() + n, 1, MPI_INT, A->Importer()->ExportPIDs()[n], 0, MPI_COMM_WORLD, &recv_request[n]);
+//        }
+//
+//        MPI_Status status_arr[A->Importer()->NumSend()];
+//        MPI_Waitall(A->Importer()->NumSend(), send_request, status_arr);
+//        MPI_Waitall(A->Importer()->NumSend(), recv_request, status_arr);
+//
+//        std::cout << "(" << myRank << ") Received: ";
+//        for(int n = 0; n < A->Importer()->NumRecv(); ++n) {
+//            std::cout << rcv[n] << " ";
+//        }
+//        std::cout << "\n";
+//        std::cout << "(" << myRank << ") Pids: ";
+//        for(int n = 0; n < A->Importer()->NumRecv(); ++n) {
+//            std::cout << A->Importer()->ExportPIDs()[n] << " ";
+//        }
+//        std::cout << "\n";
+    }
+    if (A->Exporter() != nullptr)
+        std::cout << "(" << myRank << ") A nums (exp): " << A->Exporter()->NumSend() << " " << A->Exporter()->NumRecv() << "\n";
 
     /* How to get a map of ghost elements */
     const Epetra_Import *imp = A->Importer();
-    const Epetra_Export *exp = A->Exporter();
+//    const Epetra_Export *imp = A->Exporter();
     if (imp != nullptr) {
+        std::cout << "(" << myRank << ") NumRemoteIDs: " << imp->NumRemoteIDs() << "\n";
         int numexids;
         int *procs, *ids;
         numexids = imp->NumExportIDs();
         ids = imp->ExportLIDs();                // get ids which should be exported
         procs = imp->ExportPIDs();              // get process ids to which those ids should be exported
-        std::cout << "(" << myRank << ") procs: ";
-        if (procs != nullptr) {
-            for(int n = 0; n < numexids; ++n) {
-                std::cout << procs[n] << " ";
-            }
-        }
-        std::cout << "\n";
-        std::cout << "(" << myRank << ") ids: ";
-        if (ids !=  nullptr) {
-            for(int n = 0; n < numexids; ++n) {
-                std::cout << ids[n] << " ";
-            }
-        }
-        std::cout << "\n";
 
         std::vector<double> snd(numexids);
         std::vector<int> pid(numexids);
@@ -663,7 +773,7 @@ int main(int argc, char** argv) {
             int loc_row = ids[i];
             for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
                 if (loc_row == indices->operator ()(j)) {
-                    snd[i] = values[j];
+                    snd[i] = 20+values[j];
                     pid[i] = procs[i];
                 }
             }
@@ -672,27 +782,91 @@ int main(int argc, char** argv) {
         }
         std::cout << "\n";
 
-//        int buf = 2;
-//        MPI_Status status;
-//        if (myRank != 0)
-//            // receive message from any source
-//            MPI_Recv(&buf, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
-//        else
-//            // send reply back to sender of the message received above
-//            MPI_Send(&buf, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+        /*
+         * Use two maps: one to store initially size of individual messages that should be sent,
+         * another one to store messages themselves. Keys are pids which should receive messages.
+         */
+        /* Count how many data points should be sent to each process */
+        std::unordered_map<int, int> count;
+        std::unordered_map<int, int>::iterator it_c, it_c_end;
+        for(int i = 0; i < A->Importer()->NumExportIDs(); i++)
+            count[A->Importer()->ExportPIDs()[i]]++;
 
-        std::cout << "(" << myRank << ") NumRemoteIDs: " << imp->NumRemoteIDs() << "\n";
-//        int numinids = imp->NumRecv();
-//        std::vector<double> rcv(numexids);
-        MPI_Status status;
-        for(uint32_t n = 0; n < snd.size(); ++n) {
-            double buf;
-            MPI_Recv(&buf, 1, MPI_DOUBLE, MPI_ANY_SOURCE, MPI_ANY_TAG, comm.Comm(), &status);
-            std::cout << "received: '" << buf  << "' from process " << status.MPI_SOURCE << "\n";
+//        it_c = count.begin();
+//        it_c_end = count.end();
+//        for(; it_c != it_c_end; ++it_c)
+//            std::cout << "(" << myRank << ") Map : " << it_c->first << ": " << it_c->second << "\n";
+//        std::cout << "\n";
+
+        double *data = snd.data();
+        int data_size = snd.size();
+        int *lids = A->Importer()->ExportLIDs();
+        std::unordered_map<int, std::vector<double*> > snd_buf;
+        std::unordered_map<int, std::vector<int> > ids_buf;
+
+        // Allocate memory for the sending map
+        it_c = count.begin();
+        for(int n = 0; n < count.size(); ++n) {
+            snd_buf[it_c->first].resize(it_c->second);
+            ids_buf[it_c->first].resize(it_c->second);
+            ++it_c;
         }
-        for(uint32_t n = 0; n < snd.size(); ++n) {
-            MPI_Send(&snd[0], 1, MPI_DOUBLE, status.MPI_SOURCE, MPI_ANY_TAG, comm.Comm());
+
+        // Assign data to the sending map
+        int offset = 0;
+        std::unordered_map<int, std::vector<double*> >::iterator it_d, it_d_end;
+        std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+        it_d = snd_buf.begin();
+        it_d_end = snd_buf.end();
+
+        // original data consists of chunks which we need to extract and send separately to each neighbor
+        it_c = count.begin();
+        it_c_end = count.end();
+        for(int n = 0; n < data_size; ++n) {
+            int pid_loc = A->Importer()->ExportPIDs()[n];                                           // check out the pid
+            it_d = snd_buf.find(pid_loc);
+            if (it_d != it_d_end) {                                                             // if pid found we are safe to go
+                int chunk_size = it_d->second.size();                                           // get number of elements in a chunk
+//                memcpy(it_d->second.data(), data + offset, sizeof(double) * chunk_size);           // copy particular chunk from the original array
+                for(int n = 0; n < chunk_size; ++n)
+                    it_d->second[n] = data + offset + n;
+                memcpy(ids_buf[pid_loc].data(), lids + offset, sizeof(int) * chunk_size);           // copy particular chunk from the original array
+                n += chunk_size;
+                offset += chunk_size;
+            }
+            else
+                std::cout << "Error!" << "\n";
         }
+
+        it_d = snd_buf.begin();
+        it_d_end = snd_buf.end();
+        for(; it_d != it_d_end; ++it_d) {
+            it_i = ids_buf.find(it_d->first);
+            int size = it_i->second.size();
+            // do stupid bubble sort of data and index vectors...
+            for(int n = 0; n < size; ++n) {
+                int max_ind = n;
+                int my_value = it_i->second[max_ind];
+                for(int m = n + 1; m < size; ++m) {
+                    if (it_i->second[m] < my_value) {
+                        std::swap(it_i->second[m], it_i->second[max_ind]);
+//                        std::swap(it_d->second[m], it_d->second[max_ind]);
+                        double *tmp = it_d->second[m];
+                        it_d->second[m] = it_d->second[max_ind];
+                        it_d->second[max_ind] = tmp;
+                        max_ind = m;
+                        my_value = it_i->second[max_ind];
+                    }
+                }
+            }
+            std::cout << "(" << myRank << ") Snd buf : " << it_d->first << ": ";
+            for(int n = 0; n < it_d->second.size(); ++n)
+                std::cout << *it_d->second[n] << "(" << it_i->second[n] << ")" << " ";
+            std::cout << "\n";
+        }
+        // after this point we have two sorted vectors: vector of pointers on diagonal elements and
+        // vector of corresponding row indices
+        // TODO: wrap it in a single class (store map of pids and elements, map of pids and indices)
     }
     /* ********************************* */
 
