@@ -262,6 +262,9 @@ void UpdateMatrixGlob(int dimension, Epetra_Map *Map, int _nx, int _ny, int _nz,
 /* ********************************************************* */
 /* ********************************************************* */
 /* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
 class MatrixDiagonal {
 public:
     MatrixDiagonal() : imp(nullptr) { }
@@ -495,10 +498,561 @@ void MatrixDiagonal::Send(const MPI_Comm comm, std::vector<std::vector<double> >
     MPI_Waitall(num_ngb, send_request, status_arr);
     MPI_Waitall(num_ngb, recv_request, status_arr);
 }
+/* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
+/* ********************************************************* */
 
-/* ********************************************************* */
-/* ********************************************************* */
-/* ********************************************************* */
+class MatrixDiagonal2 {
+public:
+    MatrixDiagonal2() { }
+    ~MatrixDiagonal2() { }
+
+    void RegisterDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm, std::vector<int> &list_gid);
+
+    void SendDiagonalCoefficients(const Epetra_MpiComm *comm,
+            std::unordered_map<int, std::vector<double> > &rcv_data);
+
+private:
+    void Ping(const Epetra_MpiComm *comm, bool print = false);
+
+    void MakePointersOnDiagonal(Epetra_CrsMatrix *Matrix);
+
+private:
+//    int CountMyNeighbors(const MPI_Comm comm);
+
+private:
+    // why unordered? I don't know...
+//    std::unordered_map<int, std::vector<int> > remote_pids;             // Pointers to the diagonal elements that should be sent
+    std::unordered_map<int, std::vector<int> > remote_lids;             // Indices of diagonal elements that should be received (from other proc)
+    std::unordered_map<int, std::vector<int> > local_lids;              // Indices of diagonal elements that should be sent (from this proc)
+    std::unordered_map<int, std::vector<double*> > local_diag;              // Indices of diagonal elements that should be sent (from this proc)
+};
+
+int CountMyNeighbors(const MPI_Comm comm) {
+
+    int num_proc = 0;
+    int my_rank = 0;
+    int ngb = 0;
+    int outd = 0;
+    int wght = 0;
+    int topology;
+
+    MPI_Comm_rank(comm, &my_rank);
+    MPI_Comm_size(comm, &num_proc);
+    MPI_Topo_test(comm, &topology) ;
+
+    switch (topology) {
+        case MPI_UNDEFINED:
+            ngb = num_proc;
+            break;
+        case MPI_CART:
+            MPI_Cartdim_get(comm, &ngb);
+            if (ngb == 2)
+                ngb = 4;            // max 4 neighbors in 2d topology
+            else if (ngb == 3)
+                ngb = 6;            // max 6 neighbors in 3d topology
+            else
+                ngb = num_proc;     // for safety
+            break;
+        case MPI_GRAPH:
+            MPI_Graph_neighbors_count(comm, my_rank, &ngb);
+            break;
+        case MPI_DIST_GRAPH:
+            MPI_Dist_graph_neighbors_count(comm, &ngb, &outd, &wght);
+            break;
+    }
+
+    return ngb;
+}
+
+void PrintList(int my_rank, std::vector<int> &list, const std::string name) {
+    std::cout << "(" << my_rank << ") " << name << " : ";
+    for(size_t n = 0; n < list.size(); ++n) {
+        std::cout << list[n] << " ";
+    }
+    std::cout << "\n";
+}
+void MatrixDiagonal2::RegisterDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm, std::vector<int> &list_gid) {
+
+    if (!remote_lids.empty())
+        return;
+
+    int num_ids = list_gid.size();
+    std::vector<int> list_pid(num_ids);
+    std::vector<int> list_lid(num_ids);
+    const int my_rank = comm->MyPID();
+    const bool sendig_proc = list_gid.empty() ? false : true;
+
+    /* Get PIDs and LIDs corresponding to GIDs */
+    Matrix->Map().RemoteIDList(num_ids, list_gid.data(), list_pid.data(), list_lid.data());
+
+    PrintList(my_rank, list_gid, "list_gid");
+    PrintList(my_rank, list_pid, "list_pid");
+    PrintList(my_rank, list_lid, "list_lid");
+    return;
+
+    /* Split obtained LIDs on groups based on unique PIDs */
+    /* The map stores PID as a key and the number of corresponding LIDs as a value */
+    std::unordered_map<int, int> pid_counter;
+    std::unordered_map<int, int>::iterator it_c, it_c_end;
+    for(int n = 0; n < num_ids; n++)
+        pid_counter[list_pid[n]]++;
+
+    /* Allocate memory for maps */
+    it_c = pid_counter.begin();
+    it_c_end = pid_counter.end();
+    for(; it_c != it_c_end; ++ it_c) {
+        remote_lids[it_c->first].resize(it_c->second);
+    }
+
+    /* Assign data to the sending map */
+    int offset = 0;
+    std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+
+    /* Obtained at step (1) data consists of chunks which should be split */
+    it_i = remote_lids.begin();
+    it_i_end = remote_lids.end();
+    size_t data_type_size = sizeof(int);
+    for(int n = 0; n < num_ids; /* changed inside */) {
+        int pid_loc = list_pid[n];                                           // check out the pid
+        it_i = remote_lids.find(pid_loc);
+        if (it_i != it_i_end) {                                                             // if pid found we are safe to go
+            uint32_t chunk_size = it_i->second.size();                                           // get number of elements in a chunk
+            memcpy(remote_lids[pid_loc].data(), list_lid.data() + offset, data_type_size * chunk_size);           // copy particular chunk from the original array
+            n += chunk_size;
+            offset += chunk_size;
+        }
+        else {
+            std::cerr << "Error! Can't find PID " << pid_loc
+                    << " in the map of diagonal values. Rank " << my_rank << "." << std::endl;
+        }
+    }
+
+    /* Ping remote processes and trigger */
+    Ping(comm);
+}
+
+void MatrixDiagonal2::Ping(const Epetra_MpiComm *comm, bool print) {
+
+    const int my_rank = comm->MyPID();
+    bool sendig_proc = false;
+
+    if (!remote_lids.empty())
+        sendig_proc = true;
+
+    /* Count process' neighbors */
+    MPI_Comm loc_comm = comm->Comm();
+    int my_ngb = CountMyNeighbors(loc_comm);
+
+    /* 3) Send an array of LIDs to other process and inform it that we are waiting for some data from it */
+    /*   (only for processes who has to collect remote data) */
+    if (sendig_proc) {
+        std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+        it_i = remote_lids.begin();
+        it_i_end = remote_lids.end();
+        for(; it_i != it_i_end; ++it_i)
+            MPI_Send(it_i->second.data(), it_i->second.size(), MPI_INT, it_i->first, 0, loc_comm);           // <--- change PIDList[0]!!!
+    }
+    MPI_Barrier(loc_comm);            // !!! Absolutely necessary !!!
+
+    /* 4) Check if process should receive any message */
+    for(int n = 0; n < my_ngb; ++n) {
+        int flag;
+        MPI_Status status;
+        MPI_Iprobe(MPI_ANY_SOURCE, 0, loc_comm, &flag, &status);
+        if (flag == true) {
+            /* If so - receive the message and put it into the map */
+            int sender_id = status.MPI_SOURCE;
+            if (print)
+                std::cout << "PID " << my_rank << " has received a message from PID " << sender_id << "\n";
+
+            int msg_size = 0;
+            MPI_Get_count(&status, MPI_INT, &msg_size);
+            local_lids[sender_id].resize(msg_size);
+            MPI_Recv(local_lids[sender_id].data(), msg_size, MPI_INT, sender_id, 0, loc_comm, &status);
+
+            std::cout << "from " << sender_id << " to " << my_rank << " : ";
+            for(int n = 0; n < msg_size; ++n)
+                std::cout << local_lids[sender_id][n] << " ";
+            std::cout << std::endl;
+
+            /* After this step we know what data should be sent from this process */
+        }
+        else {
+            if (print)
+                std::cout << "PID " << my_rank << " has not received any message\n";
+        }
+    }
+}
+
+void MatrixDiagonal2::MakePointersOnDiagonal(Epetra_CrsMatrix *Matrix) {
+
+    /* Allocate memory */
+    std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+    it_i = local_lids.begin();
+    it_i_end = local_lids.end();
+    for(; it_i != it_i_end; ++ it_i) {
+        local_diag[it_i->first].resize(it_i->second.size());
+    }
+
+    /* Get diagonal values which should be exported */
+    double *values = Matrix->ExpertExtractValues();                              // Get array of values
+    Epetra_IntSerialDenseVector *indices = &Matrix->ExpertExtractIndices();     // Get array of column indices
+    Epetra_IntSerialDenseVector *offsets = &Matrix->ExpertExtractIndexOffset(); // Get array of offsets
+    std::unordered_map<int, std::vector<double*> >::iterator it_d, it_d_end;
+    it_i = local_lids.begin();
+    it_i_end = local_lids.end();
+    for(; it_i != it_i_end; ++ it_i) {
+        int loc_pid = it_i->first;
+        int loc_size = it_i->second.size();
+        it_d = local_diag.find(loc_pid);
+        if (it_d == it_d_end) {
+
+        }
+        std::vector<double*> *loc_vec = &it_d->second;
+        for(int lid = 0; lid < loc_size; ++lid) {
+            int loc_row = it_i->second[lid];
+            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
+                if (loc_row == indices->operator ()(j)) {
+                    loc_vec->operator[](lid) = &values[j];
+                }
+            }
+        }
+    }
+}
+
+void MatrixDiagonal2::SendDiagonalCoefficients(const Epetra_MpiComm *comm,
+        std::unordered_map<int, std::vector<double> > &rcv_data) {
+
+    std::unordered_map<int, std::vector<double*> >::iterator it_d, it_d_end;
+
+    it_d = local_diag.begin();
+    it_d_end = local_diag.end();
+
+    int neighbors = local_diag.size();
+    MPI_Request snd_request[neighbors];
+    MPI_Request rcv_request[neighbors];
+    MPI_Status snd_status[neighbors];
+    MPI_Status rcv_status[neighbors];
+    int tag = 0;
+    int counter = 0;
+    for(; it_d != it_d_end; ++it_d) {
+        int pid = it_d->first;
+        uint32_t size = it_d->second.size();
+        std::vector<double> data(size);
+        for(uint32_t n = 0; n < size; ++n) {
+            data[n] = *it_d->second[n];
+        }
+        MPI_Isend(data.data(), size, MPI_DOUBLE, pid, tag, comm->Comm(), &snd_request[counter]);
+
+        rcv_data[pid].resize(remote_lids[pid].size());
+        MPI_Irecv(rcv_data[pid].data(), size, MPI_DOUBLE, pid, tag, comm->Comm(), &rcv_request[counter]);
+        ++counter;
+    }
+
+    MPI_Waitall(neighbors, snd_request, snd_status);
+    MPI_Waitall(neighbors, snd_request, rcv_status);
+}
+
+
+
+class MatrixDiagonal3 {
+public:
+    MatrixDiagonal3() { }
+    ~MatrixDiagonal3() { }
+
+    void RegisterDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm,
+            std::vector<int> &list_gid);
+
+    void ExchangeDiagonalCoefficients(const Epetra_MpiComm *comm,
+            std::unordered_map<int, std::vector<double> > &rcv_data);
+private:
+    void MakePointersOnDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm);
+
+private:
+    /*
+     * The idea: use local_ids to assemble a vector of double from local_ptrs and send the vector to the neighbor.
+     * Store received message in local_data
+     */
+    std::unordered_map<int, std::vector<int> > local_ids;           // local IDs which should be sent to the neighbor(s)
+    std::unordered_map<int, std::vector<double> > local_data;       // local data that is received from the nighbor(s)
+    std::unordered_map<int, std::vector<double*> > local_ptrs;      // local pointers on diagonal elements of the matrix
+};
+
+void MatrixDiagonal3::RegisterDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm, std::vector<int> &list_gid) {
+
+    const int my_rank = comm->MyPID();
+    const Epetra_Import *importer = Matrix->Importer();
+    bool print = false;
+
+    if (importer != nullptr) {
+        int number_exp_rows = importer->NumExportIDs();
+        int *exp_procs = importer->ExportPIDs();
+        MPI_Comm loc_comm = comm->Comm();
+//        MPI_Request request_arr[number_exp_rows];
+        int my_ngb = CountMyNeighbors(loc_comm);
+
+        /* Send locally stored GIDs to export PIDs */
+        int tag = 0;
+        for(int n = 0; n < number_exp_rows; ++n) {
+            if (!list_gid.empty())
+                MPI_Send(list_gid.data(), list_gid.size(), MPI_INT, exp_procs[n], tag, loc_comm);
+        }
+        MPI_Barrier(loc_comm);
+
+        /* Check if process should receive any message */
+        for(int n = 0; n < my_ngb; ++n) {
+            int flag;
+            MPI_Status status;
+            MPI_Iprobe(MPI_ANY_SOURCE, tag, loc_comm, &flag, &status);
+            if (flag == true) {
+                /* If so - receive the message and put it into the map */
+                int sender_id = status.MPI_SOURCE;
+
+                if (print)
+                    std::cout << "1. PID " << my_rank << " has received a message from PID " << sender_id << "\n";
+
+                int msg_size = 0;
+                MPI_Get_count(&status, MPI_INT, &msg_size);
+                std::unordered_map<int, std::vector<int> > local_list_gid;
+                local_list_gid[sender_id].resize(msg_size);
+                MPI_Recv(local_list_gid[sender_id].data(), msg_size, MPI_INT, sender_id, tag, loc_comm, &status);
+
+//                std::cout << "from " << sender_id << " to " << my_rank << " : ";
+//                for(int n = 0; n < msg_size; ++n)
+//                    std::cout << local_list_gid[sender_id][n] << " ";
+//                std::cout << std::endl;
+
+                /* Iterate over received messages and check if GIDs from them are presented in this proc */
+                std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+                it_i = local_list_gid.begin();
+                it_i_end = local_list_gid.end();
+
+                const Epetra_BlockMap *Map = &Matrix->Map();
+                std::unordered_map<int, int> counter;
+                for(; it_i != it_i_end; ++it_i) {
+                    int loc_pid = it_i->first;
+                    local_ids[loc_pid].resize(it_i->second.size());
+                    counter[loc_pid] = 0;
+                    int *prt_counter = &counter[loc_pid];
+                    for(uint32_t n = 0, end = it_i->second.size(); n < end; ++n) {
+//                        int loc_gid = it_i->second[n];
+                        int lid = Map->LID(it_i->second[n]);
+                        if (lid != -1) {
+                            local_ids[loc_pid][*prt_counter] = lid;
+                            (*prt_counter)++;
+                        }
+                    }
+                }
+
+                // Resize pre-allocated memory
+                it_i = local_list_gid.begin();
+                it_i_end = local_list_gid.end();
+                for(; it_i != it_i_end; ++it_i) {
+                    int loc_pid = it_i->first;
+                    int size = counter[loc_pid];
+                    if (size == 0)
+                        local_ids.erase(loc_pid);
+                    else
+                        local_ids[loc_pid].resize(size);
+                }
+
+                /* After this step we know what data should be sent from this process */
+            }
+            else {
+                if (print)
+                    std::cout << "1. PID " << my_rank << " has not received any message\n";
+            }
+        }
+
+//        MPI_Status status_arr[number_exp_rows];
+//        MPI_Waitall(number_exp_rows, request_arr, status_arr);
+
+//        if (local_ids.empty())
+//            return;
+
+//        std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+//        it_i = local_ids.begin();
+//        it_i_end = local_ids.end();
+//        std::cout << "(" << my_rank << ") ";
+//        for(; it_i != it_i_end; ++it_i) {
+//            std::cout << it_i->first << " : ";
+//            for(uint32_t n = 0; n < it_i->second.size(); ++n)
+//                std::cout << it_i->second[n] << " ";
+//            std::cout << "\n    ";
+//        }
+//        std::cout << std::endl;
+//
+//        MPI_Barrier(loc_comm);
+////
+////        if (local_ids.empty())
+////            return;
+//
+        /* Send back message indicating how many data points process should expect back */
+        std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+        it_i = local_ids.begin();
+        it_i_end = local_ids.end();
+        tag = 1;
+        for(; it_i != it_i_end; ++it_i) {
+            int num_loc_points = it_i->second.size();
+            MPI_Send(&num_loc_points, 1, MPI_INT, it_i->first, tag, loc_comm);           // <--- change PIDList[0]!!!
+        }
+        MPI_Barrier(loc_comm);
+
+        for(int n = 0; n < my_ngb; ++n) {
+            int flag;
+            MPI_Status status;
+            MPI_Iprobe(MPI_ANY_SOURCE, tag, loc_comm, &flag, &status);
+
+            if (flag == true) {
+                /* If so - receive the message and put it into the map */
+                int sender_id = status.MPI_SOURCE;
+
+                if (print)
+                    std::cout << "2. PID " << my_rank << " has received a message from PID " << sender_id << "\n";
+
+                int num_remote_points = 0;
+                MPI_Recv(&num_remote_points, 1, MPI_INT, sender_id, tag, loc_comm, &status);
+
+                local_data[sender_id].resize(num_remote_points);
+            }
+            else {
+                if (print)
+                    std::cout << "2. PID " << my_rank << " has not received any message\n";
+            }
+        }
+
+        MPI_Barrier(loc_comm);
+
+        /* Once finished - fill local data with zeros. It will be rewritten during the real communication */
+        std::unordered_map<int, std::vector<double> >::iterator it_d, it_d_end;
+        it_d = local_data.begin();
+        it_d_end = local_data.end();
+        for(; it_d != it_d_end; ++it_d)
+            memset(it_d->second.data(), 0x00, sizeof(double) * it_d->second.size());
+
+        MPI_Barrier(loc_comm);
+    }
+
+    MakePointersOnDiagonal(Matrix, comm);
+}
+
+void MatrixDiagonal3::MakePointersOnDiagonal(Epetra_CrsMatrix *Matrix, const Epetra_MpiComm *comm) {
+
+    if (local_ids.empty())
+        return;
+
+    const int my_rank = comm->MyPID();
+
+    /* Allocate memory */
+    std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
+    it_i = local_ids.begin();
+    it_i_end = local_ids.end();
+    for(; it_i != it_i_end; ++ it_i) {
+        local_ptrs[it_i->first].resize(it_i->second.size());
+    }
+
+    /* Get diagonal values which should be exported */
+    double *values = Matrix->ExpertExtractValues();                              // Get array of values
+    Epetra_IntSerialDenseVector *indices = &Matrix->ExpertExtractIndices();     // Get array of column indices
+    Epetra_IntSerialDenseVector *offsets = &Matrix->ExpertExtractIndexOffset(); // Get array of offsets
+    std::unordered_map<int, std::vector<double*> >::iterator it_d, it_d_end;
+    it_i = local_ids.begin();
+    for(; it_i != it_i_end; ++ it_i) {
+        int loc_pid = it_i->first;
+        int loc_size = it_i->second.size();
+
+        it_d = local_ptrs.find(loc_pid);
+
+        if (it_d == it_d_end) {
+            std::cerr << "Error! Can't find PID " << loc_pid
+                    << " in the map of pointers on diagonal values. Rank " << my_rank << "."
+                    << std::endl;
+            break;
+        }
+
+        std::vector<double*> *loc_vec = &it_d->second;
+        for(int lid = 0; lid < loc_size; ++lid) {
+            int loc_row = it_i->second[lid];
+            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
+                if (loc_row == indices->operator ()(j)) {
+                    loc_vec->operator[](lid) = &values[j];
+                }
+            }
+        }
+    }
+
+//    it_i = local_ids.begin();
+//    for(; it_i != it_i_end; ++ it_i) {
+//        int loc_pid = it_i->first;
+//
+//        it_d = local_ptrs.find(loc_pid);
+//
+//        std::cout << loc_pid << " (" << my_rank << ") : ";
+//        for(uint32_t n = 0, end = it_d->second.size(); n < end; ++n)
+//            std::cout << *it_d->second[n] << " ";
+//        std::cout << "\n";
+//    }
+}
+
+void MatrixDiagonal3::ExchangeDiagonalCoefficients(const Epetra_MpiComm *comm,
+        std::unordered_map<int, std::vector<double> > &rcv_data) {
+
+    int my_rank = 0;
+    MPI_Comm_rank(comm->Comm(), &my_rank);
+    std::unordered_map<int, std::vector<double*> >::iterator it_dp, it_dp_end;
+    bool allocated = rcv_data.empty() ? false : true;
+
+    it_dp = local_ptrs.begin();
+    it_dp_end = local_ptrs.end();
+
+    int neighbors = local_ptrs.size();
+    MPI_Request request_snd[neighbors];
+    MPI_Status status_snd[neighbors];
+    int tag = 0;
+    int counter = 0;
+    for(; it_dp != it_dp_end; ++it_dp) {
+        int pid = it_dp->first;
+        uint32_t size = it_dp->second.size();
+        std::vector<double> data(size);
+        std::cout << my_rank << "(" << pid << ") Send : " << size << " : ";
+        for(uint32_t n = 0; n < size; ++n) {
+            data[n] = *it_dp->second[n];
+            std::cout << data[n] << " ";
+        }
+        std::cout << std::endl;
+
+        MPI_Isend(data.data(), size, MPI_DOUBLE, pid, tag, comm->Comm(), &request_snd[counter]);
+        ++counter;
+    }
+
+    neighbors = local_data.size();
+    MPI_Request request_rcv[neighbors];
+    MPI_Status status_rcv[neighbors];
+    std::unordered_map<int, std::vector<double> >::iterator it_d, it_d_end;
+    it_d = local_data.begin();
+    it_d_end = local_data.end();
+    counter = 0;
+    for(; it_d != it_d_end; ++it_d) {
+        int pid = it_d->first;
+        std::vector<double> *prt_out;
+
+        // Allocate memory only if incoming map is empty
+        if (!allocated) {
+            rcv_data[pid].resize(local_data[pid].size());
+        }
+        prt_out = &rcv_data[pid];
+
+        MPI_Irecv(prt_out->data(), prt_out->size(), MPI_DOUBLE, pid, tag, comm->Comm(), &request_rcv[counter]);
+        ++counter;
+    }
+
+    MPI_Waitall(local_ids.size(), request_snd, status_snd);
+    MPI_Waitall(local_data.size(), request_rcv, status_rcv);
+}
 
 int main(int argc, char** argv) {
 
@@ -582,7 +1136,7 @@ int main(int argc, char** argv) {
     Epetra_CrsMatrix *A;
     A = new Epetra_CrsMatrix(Copy, *myMap, dimension+1, false);
 
-    std::cout << *myMap << "\n";
+//    std::cout << *myMap << "\n";
     time1 = time.WallTime();
     AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
     time2 = time.WallTime();
@@ -1124,97 +1678,186 @@ int main(int argc, char** argv) {
 //    std::vector<std::vector<int> > rcv_ind;
 //    md.Send(comm.Comm(), rcv_data, rcv_ind);
 
-    /* Complex communication :) */
+//    MatrixDiagonal2 md;
+//    bool sendig_proc = false;
+//    int NumIDs = 2;
+//    std::vector<int> list_gid;
+//
+//    /* 1) Get a GID */
+//    if (myRank == 0) {
+//        list_gid.resize(NumIDs);
+//        list_gid[0] = 8;
+//        list_gid[1] = 9;
+//        sendig_proc = true;
+//    }
+//    else if (myRank == 1) {
+//        list_gid.resize(NumIDs);
+//        list_gid[0] = 10;
+//        list_gid[1] = 11;
+//        sendig_proc = true;
+//    }
+//    md.RegisterDiagonal(A, &comm, list_gid);
+
+    MatrixDiagonal3 md;
     bool sendig_proc = false;
     int NumIDs = 2;
-    std::vector<int> GIDList, PIDList, LIDList;
-    GIDList.resize(NumIDs);
-    PIDList.resize(NumIDs);
-    LIDList.resize(NumIDs);
+    std::vector<int> list_gid;
 
     /* 1) Get a GID */
     if (myRank == 0) {
-        GIDList[0] = 8;
-        GIDList[1] = 9;
+        list_gid.resize(NumIDs);
+        list_gid[0] = 8;
+        list_gid[1] = 9;
         sendig_proc = true;
     }
     else if (myRank == 1) {
-        GIDList[0] = 10;
-        GIDList[1] = 11;
+        list_gid.resize(NumIDs);
+        list_gid[0] = 10;
+        list_gid[1] = 11;
         sendig_proc = true;
     }
-    else {
-        GIDList[0] = 0;
-        GIDList[1] = 0;
-    }
+    md.RegisterDiagonal(A, &comm, list_gid);
 
-    /* 2) Get PIDs and LIDs corresponding to GIDs */
-    myMap->RemoteIDList(NumIDs, GIDList.data(), PIDList.data(), LIDList.data());
+    std::unordered_map<int, std::vector<double> > rcv_data;
+    std::unordered_map<int, std::vector<double> >::iterator it;
+    md.ExchangeDiagonalCoefficients(&comm, rcv_data);
+    md.ExchangeDiagonalCoefficients(&comm, rcv_data);
 
-    for(int n = 0; n < NumIDs; ++n)
-        std::cout << "(" << myRank << ") : " << GIDList[n] << ", " << PIDList[n] << ", " << LIDList[n] << "\n";
-
-    /* 3) Send an array of LIDs to other process and inform it that we are waiting for some data from it */
-    /*   (only for processes who has to collect remote data) */
-    if (sendig_proc)
-    {
-        MPI_Send(LIDList.data(), LIDList.size(), MPI_INT, PIDList[0], 0, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
-    }
-    MPI_Barrier(MPI_COMM_WORLD);            // !!! Absolutely necessary !!!
-
-    /* 4) Check by all processes if they should receive any message */
-    int flag;
-    MPI_Status status;
-    MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
-    if (flag == true) {
-        /* If so - receive the message */
-        std::cout << "PID " << myRank << " has received a message from PID " << status.MPI_SOURCE << "\n";
-
-        std::vector<int> LIDList;
-        int msg_size = 0;
-        MPI_Get_count(&status, MPI_INT, &msg_size);
-        LIDList.resize(msg_size);
-        MPI_Recv(LIDList.data(), msg_size, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD, &status);
-
-        for(int n = 0; n < msg_size; ++n)
-            std::cout << LIDList[n] << " ";
-        std::cout << std::endl;
-
-        /* 5) Assemble and send back the new message consists of values from the diagonal */
-        double *values = A->ExpertExtractValues();                              // Get array of values
-        Epetra_IntSerialDenseVector *indices = &A->ExpertExtractIndices();     // Get array of column indices
-        Epetra_IntSerialDenseVector *offsets = &A->ExpertExtractIndexOffset(); // Get array of offsets
-
-        /* Assemble diagonal values which should be exported */
-        std::vector<double> diag_values;
-        diag_values.resize(LIDList.size());
-        for(uint32_t i = 0; i < LIDList.size(); ++i) {
-            int loc_row = LIDList[i];
-            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
-                if (loc_row == indices->operator ()(j)) {
-                    diag_values[i] = 20 + values[j];
-                }
-            }
+    std::cout << "(" << myRank << ") Rcv buf : ";
+    for(it = rcv_data.begin(); it != rcv_data.end(); ++it) {
+        for(uint32_t n = 0; n < it->second.size(); ++n) {
+            std::cout << it->second[n] << "(" << it->first << ") ";
         }
-        MPI_Send(diag_values.data(), diag_values.size(), MPI_DOUBLE, status.MPI_SOURCE, 1, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
+        std::cout << "\n              ";
     }
-    else
-        std::cout << "PID " << myRank << " has not received any message\n";
+    std::cout << std::endl;
 
-    /* 6) Receive the data as a response on sent message */
-    if (sendig_proc)
-    {
-        MPI_Probe(PIDList[0], 1, MPI_COMM_WORLD, &status);
-        int msg_size = 0;
-        MPI_Get_count(&status, MPI_DOUBLE, &msg_size);
-        std::vector<double> rcv_msg(msg_size);
-        MPI_Recv(rcv_msg.data(), msg_size, MPI_DOUBLE, PIDList[0], 1, MPI_COMM_WORLD, &status);
+//    /* Complex communication :) */
+//    bool sendig_proc = false;
+//    int NumIDs = 0;
+////    std::vector<int> GIDList, PIDList, LIDList;
+////    GIDList.resize(NumIDs);
+////    PIDList.resize(NumIDs);
+////    LIDList.resize(NumIDs);
+//    int *GIDList = nullptr;
+//    int *PIDList = nullptr;
+//    int *LIDList = nullptr;
+//
+//    /* 1) Get a GID */
+//    if (myRank == 0) {
+//        NumIDs = 2;
+////        GIDList.resize(NumIDs);
+////        PIDList.resize(NumIDs);
+////        LIDList.resize(NumIDs);
+//        GIDList = new int [2];
+//        PIDList = new int [2];
+//        LIDList = new int [2];
+//        GIDList[0] = 8;
+//        GIDList[1] = 9;
+//        sendig_proc = true;
+//    }
+//    else if (myRank == 1) {
+//        NumIDs = 2;
+////        GIDList.resize(NumIDs);
+////        PIDList.resize(NumIDs);
+////        LIDList.resize(NumIDs);
+//        GIDList = new int [2];
+//        PIDList = new int [2];
+//        LIDList = new int [2];
+//        GIDList[0] = 10;
+//        GIDList[1] = 11;
+//        sendig_proc = true;
+//    }
+//    else {
+////        GIDList = new int [2];
+////        PIDList = new int [2];
+////        LIDList = new int [2];
+////        GIDList[0] = 0;
+////        GIDList[1] = 0;
+//    }
+//
+//    /* 2) Get PIDs and LIDs corresponding to GIDs */
+////    A->Map().RemoteIDList(NumIDs, GIDList.data(), PIDList.data(), LIDList.data());
+//    int sizzzz = 0;
+//    A->Map().RemoteIDList(NumIDs, GIDList, PIDList, LIDList, &sizzzz);
+//
+////    std::cout << "sizzzz " << sizzzz << " : ";
+//    for(int n = 0; n < NumIDs; ++n)
+//        std::cout << "(" << myRank << ") : " << GIDList[n] << ", " << PIDList[n] << ", " << LIDList[n] << "\n";
+//
+////    if (myRank == 0 || myRank == 1)
+//    {
+//        delete [] GIDList;
+//        delete [] PIDList;
+//        delete [] LIDList;
+//    }
 
-        std::cout << "Received: ";
-        for(int n = 0; n < msg_size; ++n)
-            std::cout << rcv_msg[n] << " ";
-        std::cout << std::endl;
-    }
+//
+//    /* 3) Send an array of LIDs to other process and inform it that we are waiting for some data from it */
+//    /*   (only for processes who has to collect remote data) */
+//    if (sendig_proc)
+//    {
+//        MPI_Send(LIDList.data(), LIDList.size(), MPI_INT, PIDList[0], 0, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
+//    }
+//    MPI_Barrier(MPI_COMM_WORLD);            // !!! Absolutely necessary !!!
+//
+//    /* 4) Check by all processes if they should receive any message */
+//    int flag;
+//    MPI_Status status;
+//    MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
+//    if (flag == true) {
+//        /* If so - receive the message */
+//        std::cout << "PID " << myRank << " has received a message from PID " << status.MPI_SOURCE << "\n";
+//
+//        std::vector<int> LIDList;
+//        int msg_size = 0;
+//        MPI_Get_count(&status, MPI_INT, &msg_size);
+//        LIDList.resize(msg_size);
+//        MPI_Recv(LIDList.data(), msg_size, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD, &status);
+//
+//        for(int n = 0; n < msg_size; ++n)
+//            std::cout << LIDList[n] << " ";
+//        std::cout << std::endl;
+//
+//        /* 5) Assemble and send back the new message consists of values from the diagonal */
+//        double *values = A->ExpertExtractValues();                              // Get array of values
+//        Epetra_IntSerialDenseVector *indices = &A->ExpertExtractIndices();     // Get array of column indices
+//        Epetra_IntSerialDenseVector *offsets = &A->ExpertExtractIndexOffset(); // Get array of offsets
+//
+//        /* Assemble diagonal values which should be exported */
+//        std::vector<double> diag_values;
+//        diag_values.resize(LIDList.size());
+//        for(uint32_t i = 0; i < LIDList.size(); ++i) {
+//            int loc_row = LIDList[i];
+//            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
+//                if (loc_row == indices->operator ()(j)) {
+//                    diag_values[i] = 20 + values[j];
+//                }
+//            }
+//        }
+//        MPI_Send(diag_values.data(), diag_values.size(), MPI_DOUBLE, status.MPI_SOURCE, 1, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
+//    }
+//    else
+//        std::cout << "PID " << myRank << " has not received any message\n";
+//
+//    /* 6) Receive the data as a response on sent message */
+//    if (sendig_proc)
+//    {
+//        MPI_Probe(PIDList[0], 1, MPI_COMM_WORLD, &status);
+//        int msg_size = 0;
+//        MPI_Get_count(&status, MPI_DOUBLE, &msg_size);
+//        std::vector<double> rcv_msg(msg_size);
+//        MPI_Recv(rcv_msg.data(), msg_size, MPI_DOUBLE, PIDList[0], 1, MPI_COMM_WORLD, &status);
+//
+//        std::cout << "Received: ";
+//        for(int n = 0; n < msg_size; ++n)
+//            std::cout << rcv_msg[n] << " ";
+//        std::cout << std::endl;
+//    }
+
+
+
+
 
 //    MPI_Wait(&recv_request, &status);
 //    MPI_Wait(&send_request, &status);
@@ -1446,10 +2089,10 @@ int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
             MyGlobalElements = new int[MyElements];
             MyGlobalElements[0] = 8;
             MyGlobalElements[1] = 9;
-            MyGlobalElements[2] = 12;
-            MyGlobalElements[3] = 13;
-            MyGlobalElements[4] = 10;
-            MyGlobalElements[5] = 11;
+            MyGlobalElements[2] = 10;
+            MyGlobalElements[3] = 11;
+            MyGlobalElements[4] = 12;
+            MyGlobalElements[5] = 13;
             MyGlobalElements[6] = 14;
             MyGlobalElements[7] = 15;
             break;
