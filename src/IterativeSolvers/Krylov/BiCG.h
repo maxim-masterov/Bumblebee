@@ -333,11 +333,11 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
     {
 
     int k = 0;                              // iteration number
-    long double alpha = 0.0L;               // part of the method
+     double alpha = 0.0L;               // part of the method
     double beta = 0.;                      // part of the method
-    long double delta[2] = {0.0L};			// part of the method
-    long double delta_0 = 0.0L;				// part of the method
-    long double temp = 0.0L;               // helper
+     double delta[2] = {0.0L};			// part of the method
+     double delta_0 = 0.0L;				// part of the method
+     double temp = 0.0L;               // helper
     double convergence_check = 0.;			// keeps new residual
     double convergence_check_old = 0.;// keeps old residual and used only is stalling checker is switched on
     double normalizer = 1.;					// To normalize residual norm
@@ -498,8 +498,10 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
 //        r_hat.Update(tmp, 1., static_cast<double>(-alpha));
         r_hat.Update(-alpha, tmp, 1.);
 
-        if (stop_criteria != INTERN)
-            convergence_check = r.Norm2() / normalizer;
+        if (stop_criteria != INTERN) {
+            r.Norm2(&convergence_check);
+            convergence_check /= normalizer;
+        }
         else
             convergence_check = fabs(static_cast<double>(delta[1] / delta_0));
         ;

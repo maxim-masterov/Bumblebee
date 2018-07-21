@@ -459,7 +459,7 @@ int main(int argc, char** argv) {
 //    solver.Iterate(30, 1.0E-8);
 
     slv::AMG amg;
-    slv::BiCGSTAB solver;
+    slv::BiCG solver;
     amg.SetParameters(MLList);
     amg.Coarse(*A);
 
