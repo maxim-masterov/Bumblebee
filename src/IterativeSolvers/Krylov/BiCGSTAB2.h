@@ -486,11 +486,11 @@ void BiCGSTAB2::solve(
     double rho[2] = {0.};               // part of the method
     double gamma = 0.;                  // part of the method
     double beta = 0.;                   // part of the method
-    long double omega_1 = 0.0L;         // part of the method, stored as a long to prevent overflow
-    long double omega_2 = 0.0L;         // part of the method, stored as a long to prevent overflow
-    long double mu = 0.0L;              // part of the method, stored as a long to prevent overflow
-    long double nu = 0.0L;              // part of the method, stored as a long to prevent overflow
-    long double tau = 0.0L;             // part of the method, stored as a long to prevent overflow
+     double omega_1 = 0.0L;         // part of the method, stored as a long to prevent overflow
+     double omega_2 = 0.0L;         // part of the method, stored as a long to prevent overflow
+     double mu = 0.0L;              // part of the method, stored as a long to prevent overflow
+     double nu = 0.0L;              // part of the method, stored as a long to prevent overflow
+     double tau = 0.0L;             // part of the method, stored as a long to prevent overflow
 
     double r_norm_0 = 0.;               // Preconditioned norm
     double convergence_check = 0.;      // keeps new residual
@@ -518,18 +518,18 @@ void BiCGSTAB2::solve(
         return;
     }
 
-    VectorType r(size);
-    VectorType r_hat_0(size);
-    VectorType u(size);
-    VectorType v(size);
-    VectorType s(size);
-    VectorType w(size);
-    VectorType t(size);
-    VectorType u_hat(size);
-    VectorType r_hat(size);
-    VectorType v_hat(size);
-    VectorType s_hat(size);
-    VectorType tmp(size);
+    VectorType r(_Map);
+    VectorType r_hat_0(_Map);
+    VectorType u(_Map);
+    VectorType v(_Map);
+    VectorType s(_Map);
+    VectorType w(_Map);
+    VectorType t(_Map);
+    VectorType u_hat(_Map);
+    VectorType r_hat(_Map);
+    VectorType v_hat(_Map);
+    VectorType s_hat(_Map);
+    VectorType tmp(_Map);
 
     // Right preconditioner
     precond.solve(Matrix, tmp, x0, false);
@@ -716,24 +716,24 @@ void BiCGSTAB2::solve(
          * GCR(2)-part
          */
         //! (19) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
-//          omega_1 = wrp::Dot(r, s, size);
-//          mu = wrp::Dot(s, s, size);
-//          nu = wrp::Dot(s, t, size);
-//          tau = wrp::Dot(t, t, size);
-//
-//          //! (20) \f$ \omega_2 = <r, t> \f$
-//          omega_2 = wrp::Dot(r, t, size);
-        omega_1 = mu = nu = tau = omega_2 = 0.0;
-#ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for reduction(+:omega_1, mu, nu, tau, omega_2) schedule(dynamic, 10000)
-#endif
-        for(int i = 0; i < size; ++i) {
-            omega_1 += r.data()[i] * s.data()[i];
-            mu += s.data()[i] * s.data()[i];
-            nu += s.data()[i] * t.data()[i];
-            tau += t.data()[i] * t.data()[i];
-            omega_2 += r.data()[i] * t.data()[i];
-        }
+          omega_1 = wrp::Dot(r, s, size);
+          mu = wrp::Dot(s, s, size);
+          nu = wrp::Dot(s, t, size);
+          tau = wrp::Dot(t, t, size);
+
+          //! (20) \f$ \omega_2 = <r, t> \f$
+          omega_2 = wrp::Dot(r, t, size);
+//        omega_1 = mu = nu = tau = omega_2 = 0.0;
+//#ifdef BUMBLEBEE_USE_OPENMP
+//#pragma omp parallel for reduction(+:omega_1, mu, nu, tau, omega_2) schedule(dynamic, 10000)
+//#endif
+//        for(int i = 0; i < size; ++i) {
+//            omega_1 += r.data()[i] * s.data()[i];
+//            mu += s.data()[i] * s.data()[i];
+//            nu += s.data()[i] * t.data()[i];
+//            tau += t.data()[i] * t.data()[i];
+//            omega_2 += r.data()[i] * t.data()[i];
+//        }
 
         if (mu == 0.0) {
             if (myRank == 0)

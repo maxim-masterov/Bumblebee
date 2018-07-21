@@ -336,7 +336,7 @@ void CG::solve(
     //! Apply preconditioner \f$ M z = r_0 \f$
     precond.solve(Matrix, z, r, false);
     //! Set d_0 = z_0
-    d.Copy(z);
+    d = z;
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
     r.Dot(r, &convergence_check);
