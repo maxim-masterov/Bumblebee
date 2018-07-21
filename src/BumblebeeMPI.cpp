@@ -51,6 +51,7 @@ union _neighb {
 inline double getRealTime();
 int StripeDecomposition(Epetra_Map *&Map, int _nx, int _ny, int _nz, int _size,
     const Epetra_MpiComm &comm);
+int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
 int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
 int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
 
@@ -121,9 +122,9 @@ void BuildCoefficients(int i, int _ny, int _nz, int *MyGlobalElements, int NumGl
 
 void AssembleMatrixGlob(int dimension, Epetra_Map *Map, int _nx, int _ny, int _nz, Epetra_CrsMatrix *A) {
 
-    int NumMyElements = Map->NumMyElements();           // Number of local elements
-    int *MyGlobalElements = Map->MyGlobalElements();    // Global index of local elements
-    int NumGlobalElements = Map->NumGlobalElements();   // Number of global elements
+    int NumMyElements = A->Map().NumMyElements();           // Number of local elements
+    int *MyGlobalElements = A->Map().MyGlobalElements();    // Global index of local elements
+    int NumGlobalElements = A->Map().NumGlobalElements();   // Number of global elements
 
     std::vector<double> Values(dimension + 1);
     std::vector<int> Indices(dimension + 1);
@@ -461,20 +462,34 @@ void MatrixDiagonal::RegisterDiagonal(Epetra_CrsMatrix *Matrix, const MPI_Comm c
 
     if (importer != nullptr) {
         int number_exp_rows = importer->NumExportIDs();
+        std::vector<int> exp_procs_v(number_exp_rows);
         int *exp_procs = importer->ExportPIDs();
         int my_ngb = CountMyNeighbors(comm);
         std::unordered_map<int, std::vector<int> > local_list_gid;          // this map will store gids received and detected on a process
 
+        for(int n = 0; n < number_exp_rows; ++n) {
+            exp_procs_v[n] = exp_procs[n];
+            std::cout << exp_procs[n] << " - ";
+        }
+        std::cout << "\n";
+        sort( exp_procs_v.begin(), exp_procs_v.end() );
+        exp_procs_v.erase( std::unique( exp_procs_v.begin(), exp_procs_v.end() ), exp_procs_v.end() );
+        for(uint32_t n = 0; n < exp_procs_v.size(); ++n) {
+            std::cout << exp_procs_v[n] << " . ";
+        }
+        std::cout << "\n";
+
         /* Send locally stored GIDs to export PIDs */
         int tag = 0;
-        for(int n = 0; n < number_exp_rows; ++n) {
+        for(size_t n = 0; n < exp_procs_v.size(); ++n) {
             if (!list_gid.empty())
-                MPI_Send(list_gid.data(), list_gid.size(), MPI_INT, exp_procs[n], tag, comm);
+                MPI_Send(list_gid.data(), list_gid.size(), MPI_INT, exp_procs_v[n], tag, comm);
         }
         MPI_Barrier(comm);
 
         /* Check if process should receive any message */
         for(int n = 0; n < my_ngb; ++n) {
+//        for(size_t n = 0; n < exp_procs_v.size(); ++n) {
             int flag;
             MPI_Status status;
             MPI_Iprobe(MPI_ANY_SOURCE, tag, comm, &flag, &status);
@@ -757,11 +772,11 @@ void MatrixDiagonal::ReceiveDiagonalCoefficients(const MPI_Comm comm,
             std::cout << data[n] << " ";
         }
         std::cout << std::endl;
-
         MPI_Isend(data.data(), size, MPI_DOUBLE, pid, tag, comm, &request_snd[counter]);
         ++counter;
     }
 
+    std::vector<double> rcv(2);
     neighbors = local_data.size();
     MPI_Request request_rcv[neighbors];
     MPI_Status status_rcv[neighbors];
@@ -772,67 +787,99 @@ void MatrixDiagonal::ReceiveDiagonalCoefficients(const MPI_Comm comm,
     for(; it_d != it_d_end; ++it_d) {
         int pid = it_d->first;
         std::vector<double> *prt_out;
-
+        std::cout << "pid: " << my_rank << "<-" << pid << " " << it_d->second.size() << "\n";
         // Allocate memory only if incoming map is empty
         if (!allocated) {
             rcv_data[pid].resize(local_data[pid].size());
         }
         prt_out = &rcv_data[pid];
-
         MPI_Irecv(prt_out->data(), prt_out->size(), MPI_DOUBLE, pid, tag, comm, &request_rcv[counter]);
         ++counter;
     }
 
-    MPI_Waitall(local_ids.size(), request_snd, status_snd);
+
+//    int counter = 0;
+////    std::vector<double> data(2);
+////    std::vector<double> rcv(2);
+//    double data, rcv;
+//    data = 2;
+//    rcv = 0;
+//    MPI_Request r;
+//    MPI_Status st;
+////    const void *buf, int count, MPI_Datatype datatype, int dest,
+////                                 int tag, MPI_Comm comm, MPI_Request *request
+//
+////    const void *buf, int count, MPI_Datatype datatype, int dest,
+////                                int tag, MPI_Comm comm
+//    if (my_rank != 0)
+//        MPI_Irecv(&rcv,  1, MPI_DOUBLE, 0, 1, comm, &r);
+//    else
+//        MPI_Isend(&data, 1, MPI_DOUBLE, 1, 1, comm, &r);
+//    counter++;
+//
+//    MPI_Barrier(comm);
+////    MPI_Wait(&r, &st);
+
+
+    MPI_Waitall(local_ptrs.size(), request_snd, status_snd);
     MPI_Waitall(local_data.size(), request_rcv, status_rcv);
+//    if (my_rank == 1)
+//        std::cout << my_rank << " : " << rcv << "\n";
+//    else
+//        std::cout << my_rank << " : " << data << "\n";
 }
 
 void MatrixDiagonal::UpdateDiagonalCoefficients(const MPI_Comm comm) {
 
-    int my_rank = 0;
-    MPI_Comm_rank(comm, &my_rank);
-    std::unordered_map<int, std::vector<double*> >::iterator it_dp, it_dp_end;
-
-    it_dp = local_ptrs.begin();
-    it_dp_end = local_ptrs.end();
-
-    int neighbors = local_ptrs.size();
-    MPI_Request request_snd[neighbors];
-    MPI_Status status_snd[neighbors];
-    int tag = 0;
-    int counter = 0;
-    for(; it_dp != it_dp_end; ++it_dp) {
-        int pid = it_dp->first;
-        uint32_t size = it_dp->second.size();
-        std::vector<double> data(size);
-        std::cout << my_rank << "(" << pid << ") Send : " << size << " : ";
-        for(uint32_t n = 0; n < size; ++n) {
-            data[n] = *it_dp->second[n];
-            std::cout << data[n] << " ";
-        }
-        std::cout << std::endl;
-
-        MPI_Isend(data.data(), size, MPI_DOUBLE, pid, tag, comm, &request_snd[counter]);
-        ++counter;
-    }
-
-    neighbors = local_data.size();
-    MPI_Request request_rcv[neighbors];
-    MPI_Status status_rcv[neighbors];
-    std::unordered_map<int, std::vector<double> >::iterator it_d, it_d_end;
-    it_d = local_data.begin();
-    it_d_end = local_data.end();
-    counter = 0;
-    for(; it_d != it_d_end; ++it_d) {
-        int pid = it_d->first;
-        std::vector<double> *prt_out;
-        prt_out = &local_data[pid];
-        MPI_Irecv(prt_out->data(), prt_out->size(), MPI_DOUBLE, pid, tag, comm, &request_rcv[counter]);
-        ++counter;
-    }
-
-    MPI_Waitall(local_ids.size(), request_snd, status_snd);
-    MPI_Waitall(local_data.size(), request_rcv, status_rcv);
+    ReceiveDiagonalCoefficients(comm, local_data);
+//    int my_rank = 0;
+//    MPI_Comm_rank(comm, &my_rank);
+//    std::unordered_map<int, std::vector<double*> >::iterator it_dp, it_dp_end;
+//
+//    it_dp = local_ptrs.begin();
+//    it_dp_end = local_ptrs.end();
+//
+//    int neighbors = local_ptrs.size();
+//    MPI_Request request_snd[neighbors];
+//    MPI_Status status_snd[neighbors];
+//    int tag = 0;
+//    int counter = 0;
+//    for(; it_dp != it_dp_end; ++it_dp) {
+//        int pid = it_dp->first;
+//        uint32_t size = it_dp->second.size();
+//        std::vector<double> data(size);
+//        std::cout << my_rank << "(" << pid << ") Send : " << size << " : ";
+//        for(uint32_t n = 0; n < size; ++n) {
+//            data[n] = *it_dp->second[n];
+//            std::cout << data[n] << " ";
+//        }
+//        std::cout << std::endl;
+//
+//        MPI_Isend(data.data(), size, MPI_DOUBLE, pid, tag, comm, &request_snd[counter]);
+//        ++counter;
+//    }
+//
+//    neighbors = local_data.size();
+//    MPI_Request request_rcv[neighbors];
+//    MPI_Status status_rcv[neighbors];
+//    std::unordered_map<int, std::vector<double> >::iterator it_d, it_d_end;
+//    it_d = local_data.begin();
+//    it_d_end = local_data.end();
+//    counter = 0;
+//    for(; it_d != it_d_end; ++it_d) {
+//        int pid = it_d->first;
+//        std::vector<double> *prt_out;
+////        prt_out = &local_data[pid];
+//        prt_out = &it_d->second;
+//        MPI_Irecv(prt_out->data(), prt_out->size(), MPI_DOUBLE, pid, tag, comm, &request_rcv[counter]);
+//        ++counter;
+//    }
+//
+//    MPI_Waitall(local_ptrs.size(), request_snd, status_snd);
+//    MPI_Waitall(local_data.size(), request_rcv, status_rcv);
+//
+//    if (my_rank == 1)
+//        std::cout << "prt_out->size(): " << local_data[0][0] << " " << local_data[0][1] << "\n";
 }
 
 /* ********************************************************* */
@@ -873,8 +920,9 @@ int main(int argc, char** argv) {
         NumGlobalElements = _nx * _ny * _nz;
     }
     else {
-        _nx = _ny = 4;
-        _nz = 1;
+        _nx = 21;
+        _ny = 21;
+        _nz = 81;
         NumGlobalElements = _nx * _ny * _nz;
 //        std::cout << "Runned with 1 thread..." << std::endl;
     }
@@ -911,9 +959,9 @@ int main(int argc, char** argv) {
     else
         dimension = 6;
 
-  Epetra_Map *myMap;  // if create do not forget do delete!
+  Epetra_Map *myMap = nullptr;  // if create do not forget do delete!
 //  StripeDecomposition(myMap, _nx, _ny, _nz, NumGlobalElements, comm);
-  Decomposition4(myMap, NumGlobalElements, comm);
+//  Decomposition2(myMap, NumGlobalElements, comm);
 
   //  cout << *myMap << endl;
 
@@ -923,11 +971,11 @@ int main(int argc, char** argv) {
      * Lowlevel matrix assembly (row-by-row from left to right)
      */
     Epetra_CrsMatrix *A;
-    A = new Epetra_CrsMatrix(Copy, *myMap, dimension+1, false);
+    A = new Epetra_CrsMatrix(Copy, Map, dimension+1, false);
 
 //    std::cout << *myMap << "\n";
     time1 = time.WallTime();
-    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
+    AssembleMatrixGlob(dimension, &Map, _nx, _ny, _nz, A);
     time2 = time.WallTime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
@@ -936,6 +984,27 @@ int main(int argc, char** argv) {
 //        std::cout << "Assembly time: " << full << std::endl;
     }
 
+    int grid_cell_id_p = 1;
+    double *values;
+    int *indices;
+    int num_elts;
+    double coeff_id_p = 1.;
+
+    // Find the diagonal element
+    A->ExtractMyRowView(grid_cell_id_p, num_elts, values, indices);
+    for(int n = 0; n < num_elts; ++n) {
+        int ind = *(indices + n);
+        if (ind == grid_cell_id_p) {
+            coeff_id_p = *(values + n);
+            std::cout << "ind " << ind << "\n";
+            break;
+        }
+    }
+
+    std::cout << "(" << myRank << ") : " << coeff_id_p << "\n";
+
+//    std::cout << A->Map() << "\n";
+//    std::cout << *A << std::endl;
 
 //    time1 = time.WallTime();
 //    UpdateMatrixGlob(dimension, &Map, _nx, _ny, _nz, &A);
@@ -964,10 +1033,10 @@ int main(int argc, char** argv) {
 
     time1 = time.WallTime();
 
-//    /* **************************** */
-//    /* **************************** */
-//    /* **************************** */
-//
+    /* **************************** */
+    /* **************************** */
+    /* **************************** */
+
 //    // create a parameter list for ML options
 //    Teuchos::ParameterList MLList;
 //    // Sets default parameters for classic smoothed aggregation. After this
@@ -1045,7 +1114,7 @@ int main(int argc, char** argv) {
 //    /* **************************** */
 //    /* **************************** */
 //    /* **************************** */
-
+//
 //    // Create Linear Problem
 //    Epetra_LinearProblem problem;
 //
@@ -1054,16 +1123,44 @@ int main(int argc, char** argv) {
 //    problem.SetRHS(&b);
 //
 //    // Create AztecOO instance
-//    AztecOO solver(problem);
+////#define AZ_r0               0 /* ||r||_2 / ||r^{(0)}||_2                      */
+////#define AZ_rhs              1 /* ||r||_2 / ||b||_2                            */
+////#define AZ_Anorm            2 /* ||r||_2 / ||A||_infty                        */
+////#define AZ_sol              3 /* ||r||_infty/(||A||_infty ||x||_1+||b||_infty)*/
+////#define AZ_weighted         4 /* ||r||_WRMS                                   */
+////#define AZ_expected_values  5 /* ||r||_WRMS with weights taken as |A||x0|     */
+////#define AZ_noscaled         6 /* ||r||_2                                      */
+////#define AZTECOO_conv_test   7 /* Convergence test will be done via AztecOO    */
+////#define AZ_inf_noscaled     8 /* ||r||_infty
 //
-////    solver.SetPrecOperator(MLPrec);
+//    AztecOO solver(problem);
 //    solver.SetAztecOption(AZ_conv, AZ_noscaled);
 //    solver.SetAztecOption(AZ_solver, AZ_bicgstab);
-////    solver.SetAztecOption(AZ_output, 0);
-////    solver.SetAztecOption(AZ_precond, AZ_ilu);//AZ_dom_decomp);
-////    solver.SetAztecOption(AZ_subdomain_solve, AZ_icc);
-//    solver.SetAztecOption(AZ_precond, AZ_Jacobi);
-//    solver.SetAztecOption(AZ_omega, 0.72);
+//    solver.SetAztecOption(AZ_precond, AZ_none);
+//    solver.SetAztecOption(AZ_output, 1);
+//    solver.Iterate(100, 1.0E-8);
+//
+////    // Create AztecOO instance
+////    AztecOO solver(problem);
+////
+//////    ML_Epetra::MultiLevelPreconditioner MLPrec2(*A, MLList);
+////
+////    double time5 = time.WallTime();
+////    solver.SetPrecOperator(MLPrec);
+////    double time6 = time.WallTime();
+////    MPI_Reduce(&time5, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
+////    MPI_Reduce(&time6, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
+////    if (myRank == 0) {
+////        full = max_time - min_time;
+////        std::cout << "SetPrecOperator() time: " << "\t" << full << std::endl;
+////    }
+////    solver.SetAztecOption(AZ_conv, AZ_noscaled);
+////    solver.SetAztecOption(AZ_solver, AZ_bicgstab);
+////    solver.SetAztecOption(AZ_output, 1);
+//////    solver.SetAztecOption(AZ_precond, AZ_dom_decomp);//AZ_ilu);//AZ_dom_decomp);
+//////    solver.SetAztecOption(AZ_subdomain_solve, AZ_icc);
+////    solver.SetAztecOption(AZ_precond, AZ_Jacobi);
+////    solver.SetAztecOption(AZ_omega, 0.72);
 ////    solver.Iterate(30, 1.0E-8);
 //
 ////    slv::BiCGSTAB solver;
@@ -1077,388 +1174,18 @@ int main(int argc, char** argv) {
 //    time2 = time.WallTime();
 //    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
 //    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-
+//
 //    if (myRank == 0) {
 //        full = max_time - min_time;
-//        std::cout << numProcs << "\t" << full << std::endl;
+//        std::cout << "Total time: (" << numProcs << ") " << full << std::endl;
 //        std::cout << "Iterations: " << solver.NumIters() << "\n";
 //        std::cout << "Residual: " << solver.TrueResidual() << "\n";
 //        std::cout << "Residual: " << solver.ScaledResidual() << "\n";
 //    }
 
-//    std::cout << "\n\n\n" << std::endl;
-
-    /* *************************************** */
-    int entries = 0;
-    double *values;
-//    int *indices;
-
-    int rows = A->NumMyRows();
-    values = A->ExpertExtractValues();
-    Epetra_IntSerialDenseVector *indices = &A->ExpertExtractIndices();
-    Epetra_IntSerialDenseVector *offsets = &A->ExpertExtractIndexOffset();
-
-//    for(int i = 0; i < rows; ++i) {
-//        for(int j = offsets->operator ()(i); j < offsets->operator ()(i+1); ++j) {
-//            if (i == indices->operator ()(j)) {
-//                values[j] = i;
-////                std::cout << "diag : " << values[j] << "\n";
-//            }
-//        }
-//    }
-
-    /* ************************************************** */
-    /* 0) Create a map
-     * 1) Extract diagonal
-     * 2) import diagonal elements */
-    /* ************************************************** */
-//    int glob_el[2];
-//    if (comm.MyPID() == 0) {
-//        glob_el[0] = 15;
-//        glob_el[1] = 12;
-//    }
-//    else {
-//        glob_el[0] = 0;
-//        glob_el[1] = 2;
-//    }
-//    Epetra_Map TargetMap(-1, 2, glob_el, 0, comm);
-//    Epetra_Import Import(TargetMap, A->Map());
-//    Epetra_CrsMatrix B(Copy, TargetMap, dimension+1);
-//
-//    Epetra_Vector diagA(A->Map());
-//    Epetra_Vector diagB(TargetMap);
-//
-//    A->ExtractDiagonalCopy(diagA);
-//    diagB.Import(diagA, Import, Insert);
-//
-//    std::cout << "diagB: " << "\n";
-//    for(int n = 0; n < diagB.MyLength(); ++n)
-//        std::cout << diagB[n] << "\n";
-    /* ************************************************** */
-
-
-//    std::cout << "error: " << A->ExtractGlobalRowView(1, entries, values, indices) << "\n";
-//
-//    A->ExtractDiagonalCopy(Diagonal)
-//
-//    std::cout << "\n";
-//    std::cout << "entries: " << entries << "\n";
-//    for(int n = 0; n < entries; ++n) {
-//        std::cout << values[n] << " " << "\n";
-//    }
-//    std::cout << *A << "\n";
-//    values[0] = -99999.;
-//    std::cout << *A << "\n";
-
-    int glob_el[2];
-    if (comm.MyPID() == 0) {
-        glob_el[0] = 15;
-        glob_el[1] = 12;
-    }
-    else {
-        glob_el[0] = 0;
-        glob_el[1] = 2;
-    }
-    Epetra_Map TargetMap(-1, 2, glob_el, 0, comm);
-
-//    std::cout << Map << "\n";
-//    std::cout << TargetMap << "\n";
-
-//    Epetra_Import Import(TargetMap, Map);
-//    Epetra_Vector y(TargetMap);
-//
-//    for(int n = 0; n < y.MyLength(); ++n)
-//        y[n] = 0;
-//
-//    for(int n = 0; n < x.MyLength(); ++n)
-//        x[n] = n;
-
-//    A->ExtractDiagonalCopy(x);
-
-//    if (A->Filled())
-//        std::cout << "************** Matrix A is filled\n";
-//    else
-//        std::cout << "-------------- Matrix A is not filled\n";
-//    Epetra_Import Import(TargetMap, A->Map());
-//    Epetra_CrsMatrix B(Copy, TargetMap, dimension+1);
-//
-//    Epetra_Vector diagA(A->Map());
-//    Epetra_Vector diagB(TargetMap);
-//
-//    A->ExtractDiagonalCopy(diagA);
-//    diagB.Import(diagA, Import, Insert);
-
-//    std::cout << "diagB: " << "\n";
-//    for(int n = 0; n < diagB.MyLength(); ++n)
-//        std::cout << diagB[n] << "\n";
-
-//    /* How to get a map of ghost elements */
-//    const Epetra_Import *imp = A->Importer();
-//    if (imp != nullptr) {
-//        std::cout << "(" << myRank << ") nums: " << imp->NumSend() << " " << imp->NumRecv() << "\n";
-//        std::cout << "(" << myRank << ") NumExportIDs: " << imp->NumExportIDs() << "\n";
-//        int numexids = imp->NumExportIDs();
-//        int *procs, *ids;
-//        ids = imp->ExportLIDs();                // get ids which should be exported
-//        procs = imp->ExportPIDs();              // get process ids to which those ids should be exported
-//        std::cout << "(" << myRank << ") procs: ";
-//        if (procs != nullptr)
-//            for(int n = 0; n < numexids; ++n) {
-//                std::cout << procs[n] << " ";
-//            }
-//        std::cout << "\n";
-//        std::cout << "(" << myRank << ") ids: ";
-//        if (ids !=  nullptr)
-//            for(int n = 0; n < numexids; ++n) {
-//                std::cout << ids[n] << " ";
-//            }
-//        std::cout << "\n";
-//    }
-//    /* ********************************* */
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    if (A->Importer() != nullptr) {
-//        std::cout << "(" << myRank << ") A "
-//                    << "NumSend : " << A->Importer()->NumSend() << "\n"
-//                    << "NumRecv : " << A->Importer()->NumRecv() << "\n"
-//                    << "NumRemoteIDs : " << A->Importer()->NumRemoteIDs() << "\n"
-//                    << "NumExportIDs : " << A->Importer()->NumExportIDs() << "\n";
-//
-//        std::cout << "(" << myRank << ") RemoteLIDs : ";
-//        for(int n = 0; n <A->Importer()->NumRemoteIDs(); ++n)
-//            std::cout << A->Importer()->RemoteLIDs()[n] << " ";
-//        std::cout << "\n";
-//
-//        std::cout << "(" << myRank << ") ExportLIDs : ";
-//        for(int n = 0; n <A->Importer()->NumExportIDs(); ++n)
-//            std::cout << A->Importer()->ExportLIDs()[n] << " ";
-//        std::cout << "\n";
-//
-//        std::cout << "(" << myRank << ") ExportPIDs : ";
-//        for(int n = 0; n <A->Importer()->NumExportIDs(); ++n)
-//            std::cout << A->Importer()->ExportPIDs()[n] << " ";
-//        std::cout << "\n";
-//
-//        std::cout << "(" << myRank << ") PermuteFromLIDs : ";
-//        for(int n = 0; n <A->Importer()->NumPermuteIDs(); ++n)
-//            std::cout << A->Importer()->PermuteFromLIDs()[n] << " ";
-//        std::cout << "\n";
-//
-//        std::cout << "(" << myRank << ") PermuteToLIDs : ";
-//        for(int n = 0; n <A->Importer()->NumPermuteIDs(); ++n)
-//            std::cout << A->Importer()->PermuteToLIDs()[n] << " ";
-//        std::cout << "\n";
-//        std::cout << std::endl;
-
-//        /*
-//         * Use two maps: one to store initially size of individual messages that should be sent,
-//         * another one to store messages themselves. Keys are pids which should receive messages.
-//         */
-//        /* Count how many data points should be sent to each process */
-//        std::unordered_map<int, int> count;
-//        std::unordered_map<int, int>::iterator it_c, it_c_end;
-//        for(int i = 0; i < A->Importer()->NumExportIDs(); i++)
-//            count[A->Importer()->ExportPIDs()[i]]++;
-//
-////        it_c = count.begin();
-////        it_c_end = count.end();
-////        for(; it_c != it_c_end; ++it_c)
-////            std::cout << "(" << myRank << ") Map : " << it_c->first << ": " << it_c->second << "\n";
-////        std::cout << "\n";
-//
-//        int *data = A->Importer()->ExportLIDs();
-//        int data_size = A->Importer()->NumExportIDs();
-//        std::unordered_map<int, std::vector<int> > snd_buf;
-//
-//        // Allocate memory for the sending map
-//        it_c = count.begin();
-//        for(int n = 0; n < count.size(); ++n) {
-//            snd_buf[it_c->first].resize(it_c->second);
-//            ++it_c;
-//        }
-//
-//        // Assign data to the sending map
-//        int offset = 0;
-//        std::unordered_map<int, std::vector<int> >::iterator it_d, it_d_end;
-//        it_d = snd_buf.begin();
-//        it_d_end = snd_buf.end();
-//
-//        // original data consists of chunks which we need to extract and send separately to each neighbor
-//        it_c = count.begin();
-//        it_c_end = count.end();
-//        for(int n = 0; n < data_size; ++n) {
-//            int pid = A->Importer()->ExportPIDs()[n];                                           // check out the pid
-//            it_d = snd_buf.find(pid);
-//            if (it_d != it_d_end) {                                                             // if pid found we are safe to go
-//                int chunk_size = it_d->second.size();                                           // get number of elements in a chunk
-//                memcpy(it_d->second.data(), data + offset, sizeof(int) * chunk_size);           // copy particular chunk from the original array
-//                n += chunk_size;
-//                offset += chunk_size;
-//            }
-//            else
-//                std::cout << "Error!" << "\n";
-//        }
-//
-////        std::sort(p.begin(), p.end(),
-////            [&](std::size_t i, std::size_t j){ return compare(vec[i], vec[j]); });
-//
-//        it_d = snd_buf.begin();
-//        it_d_end = snd_buf.end();
-//        for(; it_d != it_d_end; ++it_d) {
-//            std::sort(it_d->second.begin(), it_d->second.end());
-//            std::cout << "(" << myRank << ") Snd buf : " << it_d->first << ": ";
-//            for(int n = 0; n < it_d->second.size(); ++n)
-//                std::cout << it_d->second[n] << " ";
-//            std::cout << "\n";
-//        }
-        /* ******************** */
-
-//        int *export_lids = A->Importer()->ExportLIDs();
-//        std::vector<int> rcv(A->Importer()->NumRecv());
-//        int rcv_counter = 0;
-//
-//        MPI_Request send_request[A->Importer()->NumSend()];
-//        MPI_Request recv_request[A->Importer()->NumSend()];
-//        for(int n = 0; n < A->Importer()->NumSend(); ++n) {
-//            MPI_Isend(export_lids + n, 1, MPI_INT, A->Importer()->ExportPIDs()[n], 0, MPI_COMM_WORLD, &send_request[n]);
-//            MPI_Irecv(rcv.data() + n, 1, MPI_INT, A->Importer()->ExportPIDs()[n], 0, MPI_COMM_WORLD, &recv_request[n]);
-//        }
-//
-//        MPI_Status status_arr[A->Importer()->NumSend()];
-//        MPI_Waitall(A->Importer()->NumSend(), send_request, status_arr);
-//        MPI_Waitall(A->Importer()->NumSend(), recv_request, status_arr);
-//
-//        std::cout << "(" << myRank << ") Received: ";
-//        for(int n = 0; n < A->Importer()->NumRecv(); ++n) {
-//            std::cout << rcv[n] << " ";
-//        }
-//        std::cout << "\n";
-//        std::cout << "(" << myRank << ") Pids: ";
-//        for(int n = 0; n < A->Importer()->NumRecv(); ++n) {
-//            std::cout << A->Importer()->ExportPIDs()[n] << " ";
-//        }
-//        std::cout << "\n";
-    }
-    if (A->Exporter() != nullptr)
-        std::cout << "(" << myRank << ") A nums (exp): " << A->Exporter()->NumSend() << " " << A->Exporter()->NumRecv() << "\n";
-
-    /* How to get a map of ghost elements */
-    const Epetra_Import *imp = A->Importer();
-//    const Epetra_Export *imp = A->Exporter();
-//    if (imp != nullptr) {
-//        std::cout << "(" << myRank << ") NumRemoteIDs: " << imp->NumRemoteIDs() << "\n";
-//        int numexids;
-//        int *procs, *ids;
-//        numexids = imp->NumExportIDs();
-//        ids = imp->ExportLIDs();                // get ids which should be exported
-//        procs = imp->ExportPIDs();              // get process ids to which those ids should be exported
-//
-//        std::vector<double> snd(numexids);
-//        std::vector<int> pid(numexids);
-//        values = A->ExpertExtractValues();
-//        indices = &A->ExpertExtractIndices();
-//        offsets = &A->ExpertExtractIndexOffset();
-//        std::cout << "(" << myRank << ") : ";
-//        for(int i = 0; i < numexids; ++i) {
-//            int loc_row = ids[i];
-//            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
-//                if (loc_row == indices->operator ()(j)) {
-//                    snd[i] = 20+values[j];
-//                    pid[i] = procs[i];
-//                }
-//            }
-//
-//            std::cout << snd[i] << " ";
-//        }
-//        std::cout << "\n";
-//
-//        /*
-//         * Use two maps: one to store initially size of individual messages that should be sent,
-//         * another one to store messages themselves. Keys are pids which should receive messages.
-//         */
-//        /* Count how many data points should be sent to each process */
-//        std::unordered_map<int, int> count;
-//        std::unordered_map<int, int>::iterator it_c, it_c_end;
-//        for(int i = 0; i < A->Importer()->NumExportIDs(); i++)
-//            count[A->Importer()->ExportPIDs()[i]]++;
-//
-////        it_c = count.begin();
-////        it_c_end = count.end();
-////        for(; it_c != it_c_end; ++it_c)
-////            std::cout << "(" << myRank << ") Map : " << it_c->first << ": " << it_c->second << "\n";
-////        std::cout << "\n";
-//
-//        double *data = snd.data();
-//        int data_size = snd.size();
-//        int *lids = A->Importer()->ExportLIDs();
-//        std::unordered_map<int, std::vector<double*> > snd_buf;
-//        std::unordered_map<int, std::vector<int> > ids_buf;
-//
-//        // Allocate memory for the sending map
-//        it_c = count.begin();
-//        for(int n = 0; n < count.size(); ++n) {
-//            snd_buf[it_c->first].resize(it_c->second);
-//            ids_buf[it_c->first].resize(it_c->second);
-//            ++it_c;
-//        }
-//
-//        // Assign data to the sending map
-//        int offset = 0;
-//        std::unordered_map<int, std::vector<double*> >::iterator it_d, it_d_end;
-//        std::unordered_map<int, std::vector<int> >::iterator it_i, it_i_end;
-//        it_d = snd_buf.begin();
-//        it_d_end = snd_buf.end();
-//
-//        // original data consists of chunks which we need to extract and send separately to each neighbor
-//        it_c = count.begin();
-//        it_c_end = count.end();
-//        for(int n = 0; n < data_size; ++n) {
-//            int pid_loc = A->Importer()->ExportPIDs()[n];                                           // check out the pid
-//            it_d = snd_buf.find(pid_loc);
-//            if (it_d != it_d_end) {                                                             // if pid found we are safe to go
-//                int chunk_size = it_d->second.size();                                           // get number of elements in a chunk
-////                memcpy(it_d->second.data(), data + offset, sizeof(double) * chunk_size);           // copy particular chunk from the original array
-//                for(int n = 0; n < chunk_size; ++n)
-//                    it_d->second[n] = data + offset + n;
-//                memcpy(ids_buf[pid_loc].data(), lids + offset, sizeof(int) * chunk_size);           // copy particular chunk from the original array
-//                n += chunk_size;
-//                offset += chunk_size;
-//            }
-//            else
-//                std::cout << "Error!" << "\n";
-//        }
-//
-//        it_d = snd_buf.begin();
-//        it_d_end = snd_buf.end();
-//        for(; it_d != it_d_end; ++it_d) {
-//            it_i = ids_buf.find(it_d->first);
-//            int size = it_i->second.size();
-//            // do stupid bubble sort of data and index vectors...
-//            for(int n = 0; n < size; ++n) {
-//                int max_ind = n;
-//                int my_value = it_i->second[max_ind];
-//                for(int m = n + 1; m < size; ++m) {
-//                    if (it_i->second[m] < my_value) {
-//                        std::swap(it_i->second[m], it_i->second[max_ind]);
-////                        std::swap(it_d->second[m], it_d->second[max_ind]);
-//                        double *tmp = it_d->second[m];
-//                        it_d->second[m] = it_d->second[max_ind];
-//                        it_d->second[max_ind] = tmp;
-//                        max_ind = m;
-//                        my_value = it_i->second[max_ind];
-//                    }
-//                }
-//            }
-//            std::cout << "(" << myRank << ") Snd buf : " << it_d->first << ": ";
-//            for(int n = 0; n < it_d->second.size(); ++n)
-//                std::cout << *it_d->second[n] << "(" << it_i->second[n] << ")" << " ";
-//            std::cout << "\n";
-//        }
-//        // after this point we have two sorted vectors: vector of pointers on diagonal elements and
-//        // vector of corresponding row indices
-//        // TODO: wrap it in a single class (store map of pids and elements, map of pids and indices)
-//    }
-    /* ********************************* */
+    /* **************************** */
+    /* **************************** */
+    /* **************************** */
 
 //    MatrixDiagonal md;
 
@@ -1487,12 +1214,12 @@ int main(int argc, char** argv) {
 //    }
 //    md.RegisterDiagonal(A, &comm, list_gid);
 
-    MatrixDiagonal md;
+    /*MatrixDiagonal md;
     bool sendig_proc = false;
     int NumIDs = 2;
     std::vector<int> list_gid;
 
-    /* 1) Get a GID */
+     1) Get a GID
     if (myRank == 0) {
         list_gid.resize(NumIDs);
         list_gid[0] = 8;
@@ -1501,8 +1228,8 @@ int main(int argc, char** argv) {
     }
     else if (myRank == 1) {
         list_gid.resize(NumIDs);
-        list_gid[0] = 10;
-        list_gid[1] = 11;
+        list_gid[0] = 6;
+        list_gid[1] = 7;
         sendig_proc = true;
     }
     std::unordered_map<int, std::vector<int> > found_lids;
@@ -1510,6 +1237,7 @@ int main(int argc, char** argv) {
 
     std::unordered_map<int, std::vector<double> > rcv_data;
     std::unordered_map<int, std::vector<double> >::iterator it;
+
     md.UpdateDiagonalCoefficients(comm.Comm());
 
 
@@ -1522,7 +1250,7 @@ int main(int argc, char** argv) {
         }
         std::cout << "\n              ";
     }
-    std::cout << std::endl;
+    std::cout << std::endl;*/
 
 //    md.ReceiveDiagonalCoefficients(&comm, rcv_data);
 //    md.ReceiveDiagonalCoefficients(&comm, rcv_data);
@@ -1536,217 +1264,6 @@ int main(int argc, char** argv) {
 //    }
 //    std::cout << std::endl;
 
-//    /* Complex communication :) */
-//    bool sendig_proc = false;
-//    int NumIDs = 0;
-////    std::vector<int> GIDList, PIDList, LIDList;
-////    GIDList.resize(NumIDs);
-////    PIDList.resize(NumIDs);
-////    LIDList.resize(NumIDs);
-//    int *GIDList = nullptr;
-//    int *PIDList = nullptr;
-//    int *LIDList = nullptr;
-//
-//    /* 1) Get a GID */
-//    if (myRank == 0) {
-//        NumIDs = 2;
-////        GIDList.resize(NumIDs);
-////        PIDList.resize(NumIDs);
-////        LIDList.resize(NumIDs);
-//        GIDList = new int [2];
-//        PIDList = new int [2];
-//        LIDList = new int [2];
-//        GIDList[0] = 8;
-//        GIDList[1] = 9;
-//        sendig_proc = true;
-//    }
-//    else if (myRank == 1) {
-//        NumIDs = 2;
-////        GIDList.resize(NumIDs);
-////        PIDList.resize(NumIDs);
-////        LIDList.resize(NumIDs);
-//        GIDList = new int [2];
-//        PIDList = new int [2];
-//        LIDList = new int [2];
-//        GIDList[0] = 10;
-//        GIDList[1] = 11;
-//        sendig_proc = true;
-//    }
-//    else {
-////        GIDList = new int [2];
-////        PIDList = new int [2];
-////        LIDList = new int [2];
-////        GIDList[0] = 0;
-////        GIDList[1] = 0;
-//    }
-//
-//    /* 2) Get PIDs and LIDs corresponding to GIDs */
-////    A->Map().RemoteIDList(NumIDs, GIDList.data(), PIDList.data(), LIDList.data());
-//    int sizzzz = 0;
-//    A->Map().RemoteIDList(NumIDs, GIDList, PIDList, LIDList, &sizzzz);
-//
-////    std::cout << "sizzzz " << sizzzz << " : ";
-//    for(int n = 0; n < NumIDs; ++n)
-//        std::cout << "(" << myRank << ") : " << GIDList[n] << ", " << PIDList[n] << ", " << LIDList[n] << "\n";
-//
-////    if (myRank == 0 || myRank == 1)
-//    {
-//        delete [] GIDList;
-//        delete [] PIDList;
-//        delete [] LIDList;
-//    }
-
-//
-//    /* 3) Send an array of LIDs to other process and inform it that we are waiting for some data from it */
-//    /*   (only for processes who has to collect remote data) */
-//    if (sendig_proc)
-//    {
-//        MPI_Send(LIDList.data(), LIDList.size(), MPI_INT, PIDList[0], 0, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
-//    }
-//    MPI_Barrier(MPI_COMM_WORLD);            // !!! Absolutely necessary !!!
-//
-//    /* 4) Check by all processes if they should receive any message */
-//    int flag;
-//    MPI_Status status;
-//    MPI_Iprobe(MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &flag, &status);
-//    if (flag == true) {
-//        /* If so - receive the message */
-//        std::cout << "PID " << myRank << " has received a message from PID " << status.MPI_SOURCE << "\n";
-//
-//        std::vector<int> LIDList;
-//        int msg_size = 0;
-//        MPI_Get_count(&status, MPI_INT, &msg_size);
-//        LIDList.resize(msg_size);
-//        MPI_Recv(LIDList.data(), msg_size, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD, &status);
-//
-//        for(int n = 0; n < msg_size; ++n)
-//            std::cout << LIDList[n] << " ";
-//        std::cout << std::endl;
-//
-//        /* 5) Assemble and send back the new message consists of values from the diagonal */
-//        double *values = A->ExpertExtractValues();                              // Get array of values
-//        Epetra_IntSerialDenseVector *indices = &A->ExpertExtractIndices();     // Get array of column indices
-//        Epetra_IntSerialDenseVector *offsets = &A->ExpertExtractIndexOffset(); // Get array of offsets
-//
-//        /* Assemble diagonal values which should be exported */
-//        std::vector<double> diag_values;
-//        diag_values.resize(LIDList.size());
-//        for(uint32_t i = 0; i < LIDList.size(); ++i) {
-//            int loc_row = LIDList[i];
-//            for(int j = offsets->operator ()(loc_row); j < offsets->operator ()(loc_row+1); ++j) {
-//                if (loc_row == indices->operator ()(j)) {
-//                    diag_values[i] = 20 + values[j];
-//                }
-//            }
-//        }
-//        MPI_Send(diag_values.data(), diag_values.size(), MPI_DOUBLE, status.MPI_SOURCE, 1, MPI_COMM_WORLD);           // <--- change PIDList[0]!!!
-//    }
-//    else
-//        std::cout << "PID " << myRank << " has not received any message\n";
-//
-//    /* 6) Receive the data as a response on sent message */
-//    if (sendig_proc)
-//    {
-//        MPI_Probe(PIDList[0], 1, MPI_COMM_WORLD, &status);
-//        int msg_size = 0;
-//        MPI_Get_count(&status, MPI_DOUBLE, &msg_size);
-//        std::vector<double> rcv_msg(msg_size);
-//        MPI_Recv(rcv_msg.data(), msg_size, MPI_DOUBLE, PIDList[0], 1, MPI_COMM_WORLD, &status);
-//
-//        std::cout << "Received: ";
-//        for(int n = 0; n < msg_size; ++n)
-//            std::cout << rcv_msg[n] << " ";
-//        std::cout << std::endl;
-//    }
-
-
-
-
-
-//    MPI_Wait(&recv_request, &status);
-//    MPI_Wait(&send_request, &status);
-
-
-//    std::cout << "(" << myRank << ") Rcv buf : ";
-//    for(uint32_t n = 0; n < rcv_data.size(); ++n) {
-//        for(uint32_t m = 0; m < rcv_data[n].size(); ++m) {
-//            std::cout << rcv_data[n][m] << "(" << rcv_ind[n][m] << ") ";
-//        }
-//        std::cout << "\n              ";
-//    }
-//    std::cout << std::endl;
-
-//    std::cout << Map << "\n";
-//    std::cout << "error Import: " << B.Import(*A, Import, Insert) << "\n";
-//    B.FillComplete();
-//    std::cout << "error FillComplete: " << B.FillComplete() << "\n";
-//    std::cout << B << "\n";
-////    rows = B.NumMyRows();
-//
-//    if (B.Filled())
-//        std::cout << "************** Matrix B is filled\n";
-//    else
-//        std::cout << "-------------- Matrix B is not filled\n";
-
-//    const Epetra_Import *Importer = A->Importer();
-
-//    B.Import(*A, *Importer, Insert);
-//    std::cout << B << "\n";
-//    Importer->Print(std::cout);
-
-//    Epetra_Vector diag(B.Map());
-//    B.ExtractDiagonalCopy(diag);
-//
-//    std::cout << "diag: " << "\n";
-//    for(int n = 0; n < diag.MyLength(); ++n)
-//        std::cout << diag[n] << "\n";
-
-//    double *val_loc = nullptr;
-//    int *ind_loc = nullptr;
-//    int *off_loc = nullptr;
-//    int length = B.NumMyNonzeros();
-//    B.ExtractCrsDataPointers(off_loc, ind_loc, val_loc);
-//
-//    if (off_loc == nullptr)
-//        std::cout << "off_loc" << "\n";
-//    if (ind_loc == nullptr)
-//        std::cout << "ind_loc" << "\n";
-//    if (val_loc == nullptr)
-//        std::cout << "val_loc" << "\n";
-//    std::cout << "rows: " << rows << "\n";
-//    std::cout << "indices  values\n";
-////    for(int n = 0; n < length; ++n) {
-////        std::cout << ind_loc[n] << " " << val_loc[n] << "\n";
-////    }
-//    std::cout << "offsets\n";
-//    for(int n = 0; n < B.NumMyRows(); ++n) {
-//        std::cout << off_loc[n] << "\n";
-//    }
-
-//    for(int i = 0; i < rows; ++i) {
-//        for(int j = offsets->operator ()(i); j < offsets->operator ()(i+1); ++j) {
-//            if (i == indices->operator ()(j)) {
-//                std::cout << "diag : " << values[j] << "\n";
-//            }
-//        }
-//    }
-
-
-//    y.Import(x, Import, Insert);
-//    std::cout << "NumExportIDs: " << A->Importer()->NumExportIDs() << "\n";
-//    std::cout << "NumSameIDs: " << A->Importer()->NumSameIDs() << "\n";
-//    std::cout << "NumRemoteIDs: " << A->Importer()->NumRemoteIDs() << "\n";
-
-//    double *t;
-//
-//    t = y.Values();
-//
-//    for(int n = 0; n < y.MyLength(); ++n)
-//        std::cout << n << ": " << t[n] << "\n";
-//
-////    std::cout << x << "\n";
-////
-//    std::cout << y << "\n";
 
 //    delete [] values;
 //    delete [] indices;
@@ -1861,6 +1378,7 @@ int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
 
     Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
 
+    delete [] MyGlobalElements;
     return 0;
 }
 
@@ -1904,8 +1422,57 @@ int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
 
     Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
 
+    delete [] MyGlobalElements;
     return 0;
 }
 
 
+int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
+
+    int my_pid = comm.MyPID();
+    int MyElements = 0;
+    int *MyGlobalElements;
+    switch(my_pid) {
+        case 0:
+            MyElements = 8;
+            MyGlobalElements = new int[MyElements];
+            MyGlobalElements[0] = 0;
+            MyGlobalElements[1] = 1;
+
+            MyGlobalElements[2] = 5;
+            MyGlobalElements[3] = 6;
+
+            MyGlobalElements[4] = 10;
+            MyGlobalElements[5] = 11;
+
+            MyGlobalElements[6] = 15;
+            MyGlobalElements[7] = 16;
+            break;
+
+        case 1:
+            MyElements = 12;
+            MyGlobalElements = new int[MyElements];
+            MyGlobalElements[0] = 2;
+            MyGlobalElements[1] = 3;
+            MyGlobalElements[2] = 4;
+
+            MyGlobalElements[3] = 7;
+            MyGlobalElements[4] = 8;
+            MyGlobalElements[5] = 9;
+
+            MyGlobalElements[6] = 12;
+            MyGlobalElements[7] = 13;
+            MyGlobalElements[8] = 14;
+
+            MyGlobalElements[9] = 17;
+            MyGlobalElements[10] = 18;
+            MyGlobalElements[11] = 19;
+            break;
+    }
+
+    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
+
+    delete [] MyGlobalElements;
+    return 0;
+}
 
