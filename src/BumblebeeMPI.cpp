@@ -24,6 +24,7 @@
 #include "ml_include.h"
 #include "ml_MultiLevelPreconditioner.h"
 #include "ml_epetra_utils.h"
+#include "Teuchos_ParameterList.hpp"
 
 #include "IterativeSolvers.h"
 #include "AMG/AMG.h"
@@ -336,35 +337,35 @@ int main(int argc, char** argv) {
     // as required by typical smoothed aggregation for symmetric systems.
     // Other sets of parameters are available for non-symmetric systems
     // ("DD" and "DD-ML"), and for the Maxwell equations ("maxwell").
-    ML_Epetra::SetDefaults("SA",MLList);
-    // overwrite some parameters. Please refer to the user's guide
-    // for more information
-    // some of the parameters do not differ from their default value,
-    // and they are here reported for the sake of clarity
-    // output level, 0 being silent and 10 verbose
-    MLList.set("ML output", 0);
-    // maximum number of levels
-    MLList.set("max levels",5);
-    // set finest level to 0
-    MLList.set("increasing or decreasing","increasing");
-    // use Uncoupled scheme to create the aggregate
-    MLList.set("aggregation: type", "Uncoupled");
-    // smoother is Chebyshev. Example file
-    // `ml/examples/TwoLevelDD/ml_2level_DD.cpp' shows how to use
-    // AZTEC's preconditioners as smoothers
-    MLList.set("smoother: type","Chebyshev");
-    MLList.set("smoother: sweeps",1);
-    // use both pre and post smoothing
-    MLList.set("smoother: pre or post", "both");
-  #ifdef HAVE_ML_AMESOS
-    // solve with serial direct solver KLU
-    MLList.set("coarse: type","Amesos-KLU");
-  #else
-    // this is for testing purposes only, you should have
-    // a direct solver for the coarse problem (either Amesos, or the SuperLU/
-    // SuperLU_DIST interface of ML)
-    MLList.set("coarse: type","Jacobi");
-  #endif
+//    ML_Epetra::SetDefaults("SA",MLList);
+//    // overwrite some parameters. Please refer to the user's guide
+//    // for more information
+//    // some of the parameters do not differ from their default value,
+//    // and they are here reported for the sake of clarity
+//    // output level, 0 being silent and 10 verbose
+//    MLList.set("ML output", 0);
+//    // maximum number of levels
+//    MLList.set("max levels",5);
+//    // set finest level to 0
+//    MLList.set("increasing or decreasing","increasing");
+//    // use Uncoupled scheme to create the aggregate
+//    MLList.set("aggregation: type", "Uncoupled");
+//    // smoother is Chebyshev. Example file
+//    // `ml/examples/TwoLevelDD/ml_2level_DD.cpp' shows how to use
+//    // AZTEC's preconditioners as smoothers
+//    MLList.set("smoother: type","Chebyshev");
+//    MLList.set("smoother: sweeps",1);
+//    // use both pre and post smoothing
+//    MLList.set("smoother: pre or post", "both");
+//  #ifdef HAVE_ML_AMESOS
+//    // solve with serial direct solver KLU
+//    MLList.set("coarse: type","Amesos-KLU");
+//  #else
+//    // this is for testing purposes only, you should have
+//    // a direct solver for the coarse problem (either Amesos, or the SuperLU/
+//    // SuperLU_DIST interface of ML)
+//    MLList.set("coarse: type","Jacobi");
+//  #endif
     // Creates the preconditioning object. We suggest to use `new' and
     // `delete' because the destructor contains some calls to MPI (as
     // required by ML and possibly Amesos). This is an issue only if the
@@ -459,29 +460,50 @@ int main(int argc, char** argv) {
 //    solver.Iterate(30, 1.0E-8);
 
     slv::AMG amg;
-    slv::BiCG solver;
+    slv::BiCGSTAB2 solver;
+    ML_Epetra::SetDefaults("DD",MLList);
+
+    MLList.set("ML output", 0);
+    MLList.set("max levels",5);
+    MLList.set("increasing or decreasing","increasing");
+    MLList.set("aggregation: type", "Uncoupled");
+    MLList.set("smoother: type","Chebyshev");
+//    MLList.set("smoother: damping factor", 0.72);
+    MLList.set("smoother: sweeps",1);
+    MLList.set("smoother: pre or post", "both");
+    MLList.set("coarse: type","Amesos-KLU");
+    MLList.set("eigen-analysis: type", "cg");        // cg, Anorm, power-method
+    MLList.set("eigen-analysis: iterations", 7);
+
     amg.SetParameters(MLList);
+    time1 = time.WallTime();
     amg.Coarse(*A);
+    time2 = time.WallTime();
+
+    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
+    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
+    if (myRank == 0) {
+        full = max_time - min_time;
+        std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
+    }
 
     solver.SetStopCriteria(RNORM);
     solver.SetMaxIter(100);
     solver.SetTolerance(1e-8);
     solver.PrintHistory(true, 1);
+
+    time1 = time.WallTime();
     solver.solve(amg, *A, x, b, x);
+    time2 = time.WallTime();
 
     amg.Destroy();
 
     /* time2 */
-    time2 = time.WallTime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-
     if (myRank == 0) {
         full = max_time - min_time;
-        std::cout << "Total time: (" << numProcs << ") " << full << std::endl;
-//        std::cout << "Iterations: " << solver.NumIters() << "\n";
-//        std::cout << "Residual: " << solver.TrueResidual() << "\n";
-//        std::cout << "Residual: " << solver.ScaledResidual() << "\n";
+        std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
     }
 
     /* **************************** */

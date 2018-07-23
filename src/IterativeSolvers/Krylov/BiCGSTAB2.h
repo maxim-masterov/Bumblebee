@@ -590,8 +590,10 @@ void BiCGSTAB2::solve(
         return;
     }
 
-    if ( ifprint )
-        std::cout << k << '\t' << convergence_check << std::endl;
+    if ( ifprint ) {
+        if (myRank == 0)
+            std::cout << k << '\t' << convergence_check << std::endl;
+    }
     ++k;
 
     //! Start iterative loop
