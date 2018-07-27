@@ -17,7 +17,7 @@
 #include "../SolversBase.h"
 #include "../../SSE/Wrappers.h"
 
-namespace slv {
+namespace slv_mpi {
 
 /*!
  * \ingroup KrylovSolvers
@@ -35,8 +35,8 @@ namespace slv {
  *
  * \code
  * int n = 100;
- * wrp::VectorD x(n);
- * wrp::VectorD b(n);
+ * wrp_mpi::VectorD x(n);
+ * wrp_mpi::VectorD b(n);
  * SparseMatrix<double, RowMajor> A(n, n);
  *
  * // Fill matrix and right hand side
@@ -67,8 +67,8 @@ class CG: public Base {
 
 public:
 
-    CG() :
-        Base() {
+    CG(MPI_Comm _comm) :
+        Base(_comm) {
     }
     ;
 
@@ -217,7 +217,7 @@ void CG::solve(
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
         Matrix.Multiply(false, d, tmp);
         d.Dot(tmp, &temp);
-//        temp = wrp::Dot(d, tmp, size);
+//        temp = wrp_mpi::Dot(d, tmp, size);
         alpha /= temp;			// Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
@@ -225,14 +225,14 @@ void CG::solve(
 //
 //        //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
         r.Update(-alpha, tmp, 1.);
-//        wrp::Update2(
+//        wrp_mpi::Update2(
 //                x, d, 1., alpha,
 //                r, tmp, 1., -alpha,
 //                size);
 
         //! (5)   \f$ \beta = <r_{new}, r_{new}> / <r_{old}, r_{old}> \f$
         r.Dot(r, &alpha);                       // Possible break down if alpha == 0.0
-//        alpha = wrp::Dot(r, r, size);       // Possible break down if alpha == 0.0
+//        alpha = wrp_mpi::Dot(r, r, size);       // Possible break down if alpha == 0.0
         delta[0] = delta[1];
         delta[1] = alpha;
 
@@ -257,7 +257,7 @@ void CG::solve(
 
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
         d.Update(1., r, beta);
-//        wrp::Update(d, r, beta, 1., size);
+//        wrp_mpi::Update(d, r, beta, 1., size);
 
         /*
          * Check for convergence stalling

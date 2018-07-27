@@ -57,7 +57,7 @@
  * \brief Common iterative solvers for sparse matrices
  */
 
-namespace slv {
+namespace slv_mpi {
 
 	/*!
 	 * \class Base
@@ -88,6 +88,10 @@ namespace slv {
 		bool		use_add_stab;		//!< True if additional stabilization should be used (works not for all methods)
 
 		std::deque<double> res_queue;	//!< Queue (FIFO) of norms of the last \a queue_length residuals
+
+		MPI_Comm communicator;
+
+
 
 		/*!
 		 * \brief Add new element to queue and keep its maximum size
@@ -188,37 +192,23 @@ namespace slv {
 		 * @param _stalled false
 		 * @param _use_add_stab false
 		 */
-		Base (
-				double _stab_criteria = 0.7,
-				double _EPS = 1e-7,
-				int _MaxIter = 100,
-				size_t _MemoryInUsage = 0,
-				int _iterations_num = 0,
-				double _residual_norm = 0.,
-				int _stop_criteria = RNORM,
-				double _weight = 1.,
-				int _print_each = 1,
-				uint32_t _queue_length = 0,
-				int _check_each = 6,
-				bool _ifprint = false,
-				bool _check_stalling = false,
-				bool _stalled = false,
-				bool _use_add_stab = false) :
-					stab_criteria(_stab_criteria),
-					eps(_EPS),
-					weight(_weight),
-					residual_norm(_residual_norm),
-					MemoryInUsage(_MemoryInUsage),
-					MaxIter(_MaxIter),
-					iterations_num(_iterations_num),
-					stop_criteria(_stop_criteria),
-					print_each(_print_each),
-					queue_length(_queue_length),
-					check_stalling_each(_check_each),
-					ifprint(_ifprint),
-					check_stalling(_check_stalling),
-					stalled(_stalled),
-					use_add_stab(_use_add_stab) {}
+		Base (MPI_Comm _comm) :
+					stab_criteria(0.7),
+					eps(1e-7),
+					weight(1.),
+					residual_norm(0.),
+					MemoryInUsage(0),
+					MaxIter(100),
+					iterations_num(0),
+					stop_criteria(RNORM),
+					print_each(1),
+					queue_length(0),
+					check_stalling_each(6),
+					ifprint(false),
+					check_stalling(false),
+					stalled(false),
+					use_add_stab(false),
+					communicator(_comm) { }
 
 		virtual ~Base() {MemoryInUsage = 0; res_queue.clear(); stalled = false;}
 

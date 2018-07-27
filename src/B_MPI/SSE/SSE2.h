@@ -40,7 +40,7 @@
 #include "Divide.h"
 #include "Dot.h"
 
-namespace wrp {
+namespace wrp_mpi {
 /*!
  * \brief Contains low-level APIs for vectors
  *

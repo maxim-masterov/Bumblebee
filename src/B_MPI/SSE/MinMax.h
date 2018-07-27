@@ -14,7 +14,7 @@
 #include <omp.h>
 #endif
 
-namespace wrp {
+namespace wrp_mpi {
 /*!
  * \brief Searches for a maximum element in the array
  * @param a Input array

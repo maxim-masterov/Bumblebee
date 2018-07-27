@@ -21,7 +21,7 @@
 #include <omp.h>
 #endif
 
-namespace wrp {
+namespace wrp_mpi {
 namespace low {
 /*!
  * \ingroup SSE2

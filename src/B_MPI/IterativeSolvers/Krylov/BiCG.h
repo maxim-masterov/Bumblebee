@@ -17,7 +17,7 @@
 #include "../../SSE/Wrappers.h"
 #include "../SolversBase.h"
 
-namespace slv {
+namespace slv_mpi {
 
 /*!
  * \ingroup KrylovSolvers
@@ -36,8 +36,8 @@ namespace slv {
  *
  * \code
  * int n = 100;
- * wrp::VectorD x(n);
- * wrp::VectorD b(n);
+ * wrp_mpi::VectorD x(n);
+ * wrp_mpi::VectorD b(n);
  * SparseMatrix<double, RowMajor> A(n, n);
  *
  * // Fill matrix and right hand side
@@ -68,8 +68,8 @@ class BiCG: public Base {
 
 public:
 
-    BiCG() :
-        Base() {
+    BiCG(MPI_Comm _comm) :
+        Base(_comm) {
     }
     ;
 

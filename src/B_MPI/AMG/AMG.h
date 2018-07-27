@@ -12,7 +12,7 @@
 #include "ml_MultiLevelPreconditioner.h"
 #include "ml_epetra_utils.h"
 
-namespace slv {
+namespace slv_mpi {
 
 class AMG {
 public:
@@ -38,6 +38,14 @@ public:
         CleanMemory();
         MLPrec = new ML_Epetra::MultiLevelPreconditioner(Matrix, MLList);
         is_built = true;
+    }
+
+    /*!
+     * \brief Calls for internal test function (see Trilinos documentation)
+     */
+    inline void Test() {
+        if (MLPrec != nullptr)
+            MLPrec->TestSmoothers();
     }
 
     /*!

@@ -39,7 +39,7 @@
  * \note Namespace contains low level Eigen' methods for CSR matrices. They can be easily changed onto own implementation
  * or methods from other libraries if one will find them convenient.
  */
-namespace wrp {
+namespace wrp_mpi {
 
 /*!
  * \brief Dot product of two dense vectors
@@ -55,8 +55,8 @@ namespace wrp {
  * @param size Size of provided vector
  * @return Dot product
  */
-template<class Vector>
-inline long double Dot(Vector &v1, Vector &v2, uint32_t size) {
+
+inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     /* Original code */
 #ifndef USE_MAGIC_POWDER
     long double res = 0.0L;
@@ -72,23 +72,23 @@ inline long double Dot(Vector &v1, Vector &v2, uint32_t size) {
     uint32_t i = 0;
     int lvl = 4;									// unrolling level
 #ifdef USE_MAGIC_POWDER
-    _mm_prefetch((char*)v1.Values(), _MM_HINT_T1);
-    _mm_prefetch((char*)v2.Values(), _MM_HINT_T1);
+    _mm_prefetch((char*)v1, _MM_HINT_T1);
+    _mm_prefetch((char*)v2, _MM_HINT_T1);
 #endif
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for reduction(+:res)
 #endif
     for(uint32_t i = 0; i < ROUND_DOWN(size, lvl); i+=lvl) {
-        __m128d r1 = _mm_mul_pd(_mm_load_pd(v1.Values()+i), _mm_load_pd(v2.Values()+i));
-        __m128d r2 = _mm_mul_pd(_mm_load_pd(v1.Values()+i+2), _mm_load_pd(v2.Values()+i+2));
+        __m128d r1 = _mm_mul_pd(_mm_load_pd(v1 + i), _mm_load_pd(v2 + i));
+        __m128d r2 = _mm_mul_pd(_mm_load_pd(v1 + i + 2), _mm_load_pd(v2 + i + 2));
         r1 = _mm_add_pd(r1, r2);
         res += _mm_cvtsd_f64(_mm_hadd_pd(r1, r1));
     }
     for(i = ROUND_DOWN(size, lvl); i < size; ++i)
-    res += v1.Values()[i] * v2.Values()[i];
+        res += v1[i] * v2[i];
 
     long double res_comm = res;
-    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 
     return res_comm;
 #endif
@@ -116,12 +116,12 @@ inline long double Dot(Vector &v1, Vector &v2, uint32_t size) {
  * @param d Scale factor of \e v4
  * @param size Size of the vectors
  */
-template<class Vector>
-inline void Update(Vector &v1, Vector &v2, Vector &v3, Vector &v4, double a, double b, double c,
+
+inline void Update(double *v1, double *v2, double *v3, double *v4, double a, double b, double c,
     double d, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _upd_d(v1.Values(), v2.Values(), v3.Values(), v4.Values(), a, b, c, d, size);
+    _upd_d(v1, v2, v3, v4, a, b, c, d, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for
@@ -154,12 +154,12 @@ inline void Update(Vector &v1, Vector &v2, Vector &v3, Vector &v4, double a, dou
  * @param c Scale factor of \e v3
  * @param size Size of the vectors
  */
-template<class Vector>
-inline void Update(Vector &v1, Vector &v2, Vector &v3, double a, double b, double c,
+
+inline void Update(double *v1, double *v2, double *v3, double a, double b, double c,
     uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _upd_d(v1.Values(), v2.Values(), v3.Values(), a, b, c, size);
+    _upd_d(v1, v2, v3, a, b, c, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for OPENMP_SCHEDULE
@@ -186,11 +186,11 @@ inline void Update(Vector &v1, Vector &v2, Vector &v3, double a, double b, doubl
  * @param b Scale factor of \e v2
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Update(Vector &v1, Vector &v2, double a, double b, uint32_t size) {
+
+inline void Update(double *v1, double *v2, double a, double b, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _upd_d(v1.Values(), v2.Values(), a, b, size);
+    _upd_d(v1, v2, a, b, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for
@@ -218,11 +218,11 @@ inline void Update(Vector &v1, Vector &v2, double a, double b, uint32_t size) {
  *
  * FIXME: do it properly!
  */
-template<class Vector>
-inline void Update(Vector &v1, Vector &v2, double b, uint32_t size) {
+
+inline void Update(double *v1, double *v2, double b, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _upd_d(v1.Values(), v2.Values(), b, size);
+    _upd_d(v1, v2, b, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for
@@ -250,11 +250,11 @@ inline void Update(Vector &v1, Vector &v2, double b, uint32_t size) {
  * @param c Scale factor of \e v3
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Update(Vector &v1, Vector &v2, Vector &v3, double b, double c, uint32_t size) {
+
+inline void Update(double *v1, double *v2, double *v3, double b, double c, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _upd_d(v1.Values(), v2.Values(), v3.Values(), b, c, size);
+    _upd_d(v1, v2, v3, b, c, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for OPENMP_SCHEDULE
@@ -286,14 +286,14 @@ inline void Update(Vector &v1, Vector &v2, Vector &v3, double b, double c, uint3
  * @param d Scale factor of \e v4
  * @param size Size of the vectors
  */
-template<class Vector>
-inline void Update2(Vector &v1, Vector &v2, double a, double b, Vector &v3, Vector &v4, double c,
+
+inline void Update2(double *v1, double *v2, double a, double b, double *v3, double *v4, double c,
     double d, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
     _upd2_d(
-        v1.Values(), v2.Values(), a, b,
-        v3.Values(), v4.Values(), c, d,
+        v1, v2, a, b,
+        v3, v4, c, d,
         size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
@@ -321,11 +321,11 @@ inline void Update2(Vector &v1, Vector &v2, double a, double b, Vector &v3, Vect
  * @param v2 Vector to be added and scaled
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Add(Vector &v1, Vector &v2, uint32_t size) {
+
+inline void Add(double *v1, double *v2, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _add_d(v1.Values(), v2.Values(), size);
+    _add_d(v1, v2, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for OPENMP_SCHEDULE
@@ -348,8 +348,8 @@ inline void Add(Vector &v1, Vector &v2, uint32_t size) {
  * @param size Size of provided vector
  * @return L2 norm
  */
-template<class Vector>
-inline double Norm2(Vector &v1, uint32_t size) {
+
+inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
     /*
      * Code below helps to avoid overflows. The idea is quite simple: take logarithm of whole
      * expression, calculate logarithmic values and than obtain true result through exp:
@@ -360,15 +360,17 @@ inline double Norm2(Vector &v1, uint32_t size) {
      */
     long double xmax = 0., scale;
     long double sum = 0.;
+    long double xmax_loc = 0.;
 
 #ifdef USE_MAGIC_POWDER
-    xmax = find_max_simd128(v1.Values(), size);
+    xmax_loc = find_max_simd128(v1, size);
 #else
     for(uint32_t i = 0; i < size; ++i) {
         long double xabs = fabs(v1[i]);
-        if (xabs > xmax) xmax = xabs;
+        if (xabs > xmax_loc) xmax_loc = xabs;
     }
 #endif
+    MPI_Allreduce(&xmax_loc, &xmax, 1, MPI_LONG_DOUBLE, MPI_MAX, _comm);
 
     if (xmax == 0.) return 0.;
     scale = 1.0 / xmax;
@@ -383,7 +385,7 @@ inline double Norm2(Vector &v1, uint32_t size) {
 
     long double res = xmax * sqrt(sum);
     long double res_comm = res;
-    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 
     return res_comm;
 }
@@ -403,11 +405,11 @@ inline double Norm2(Vector &v1, uint32_t size) {
  * @param value Value
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Assign(Vector &v1, double const value, uint32_t size) {
+
+inline void Assign(double *v1, double const value, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _assign_d(v1.Values(), value, size);
+    _assign_d(v1, value, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for OPENMP_SCHEDULE
@@ -431,11 +433,11 @@ inline void Assign(Vector &v1, double const value, uint32_t size) {
  * @param v1 Vector to be updated
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Zero(Vector &v1, uint32_t size) {
+
+inline void Zero(double *v1, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _zero_d(v1.Values(), size);
+    _zero_d(v1, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
     #pragma omp parallel for OPENMP_SCHEDULE
@@ -460,11 +462,11 @@ inline void Zero(Vector &v1, uint32_t size) {
  * @param v2 Vector to be copied
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Copy(Vector &v1, Vector &v2, uint32_t size) {
+
+inline void Copy(double *v1, double *v2, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _setto_d(v1.Values(), v2.Values(), size);
+    _setto_d(v1, v2, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
     #pragma omp parallel for
@@ -489,11 +491,11 @@ inline void Copy(Vector &v1, Vector &v2, uint32_t size) {
  * @param v2 Vector to be copied
  * @param size Size of provided vector
  */
-template<class Vector>
-inline void Copy(Vector &v1, Vector &v2, double a, uint32_t size) {
+
+inline void Copy(double *v1, double *v2, double a, uint32_t size) {
 
 #ifdef USE_MAGIC_POWDER
-    _setto_d(v1.Values(), v2.Values(), a, size);
+    _setto_d(v1, v2, a, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for

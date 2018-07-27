@@ -26,8 +26,9 @@
 #include "ml_epetra_utils.h"
 #include "Teuchos_ParameterList.hpp"
 
-#include "IterativeSolvers.h"
-#include "AMG/AMG.h"
+#include "B_MPI/IterativeSolvers.h"
+#include "B_MPI/AMG/AMG.h"
+#include "B_MPI/Assembly/Poisson.h"
 #include <SMesh.h>
 #include <Decomposer.h>
 #include <Distributor.h>
@@ -300,7 +301,9 @@ int main(int argc, char** argv) {
     A = new Epetra_CrsMatrix(Copy, *myMap, dimension+1, false);
 
     time1 = time.WallTime();
-    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
+//    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
+    slv_mpi::Poisson poisson;
+    poisson.AssemblePoisson(*A, _nx, _ny, _nz);
     time2 = time.WallTime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
@@ -459,8 +462,8 @@ int main(int argc, char** argv) {
 //    solver.SetAztecOption(AZ_omega, 0.72);
 //    solver.Iterate(30, 1.0E-8);
 
-    slv::AMG amg;
-    slv::BiCGSTAB2 solver;
+    slv_mpi::AMG amg;
+    slv_mpi::BiCGSTAB2 solver(comm.Comm());
     ML_Epetra::SetDefaults("DD",MLList);
 
     MLList.set("ML output", 0);
