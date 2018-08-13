@@ -463,7 +463,7 @@ int main(int argc, char** argv) {
 //    solver.Iterate(30, 1.0E-8);
 
     slv_mpi::AMG amg;
-    slv_mpi::BiCGSTAB2 solver(comm.Comm());
+    slv_mpi::CG solver(comm.Comm());
     ML_Epetra::SetDefaults("DD",MLList);
 
     MLList.set("ML output", 0);
@@ -496,7 +496,8 @@ int main(int argc, char** argv) {
     solver.PrintHistory(true, 1);
 
     time1 = time.WallTime();
-    solver.solve(amg, *A, x, b, x);
+//    solver.solve(amg, *A, x, b, x);
+    solver.solve(*A, x, b, x);
     time2 = time.WallTime();
 
     amg.Destroy();

@@ -42,6 +42,28 @@
 namespace wrp_mpi {
 
 /*!
+ * \brief Matrix-vector multiplication
+ *
+ * Function calls for parallelized SSE2 version of sparse matrix-vector multiplication if flag
+ * USE_MAGIC_POWDER has been defined. Otherwise standard Eigen's method will be called.
+ *
+ * If flag BUMBLEBEE_USE_OPENMP was defined instead of flag USE_MAGIC_POWDER regular OpenMP
+ * implementation will be invoked (i.e. without explicit SSE2 usage).
+ *
+ * \warning Sequential call should work for both dense and sparse matrices, while parallel
+ * version works only for sparse matrices!
+ *
+ * @param A Incoming matrix
+ * @param v Incoming vector
+ * @param res Result
+ * @param transpose True if operation should be applied to transposed matrix
+ */
+template<class Matrix, class Vector>
+inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) {
+    A.Multiply(transpose, v, res);
+}
+
+/*!
  * \brief Dot product of two dense vectors
  *
  * Function calls for parallelized SSE2 version of vector-vector multiplication if flag

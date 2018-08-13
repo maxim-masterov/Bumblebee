@@ -257,7 +257,6 @@ void BiCGSTAB2::solve(
 
         //! (5) \f$ v = A u \f$
 //          v.noalias() = Matrix * u;
-//        MPI_Barrier(communicator);
         Matrix.Multiply(false, u, v);
 
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
@@ -279,7 +278,6 @@ void BiCGSTAB2::solve(
 
         //! (8) \f$ s = A r \f$
 //          s.noalias()  = Matrix * r;
-//        MPI_Barrier(communicator);
         Matrix.Multiply(false, r, s);
 
         //! (9) \f$ x = x + \alpha u \f$
@@ -301,7 +299,6 @@ void BiCGSTAB2::solve(
 
         //! (12) \f$ w = A v \f$
 //          w.noalias() = Matrix * v;
-//        MPI_Barrier(communicator);
         Matrix.Multiply(false, v, w);
 
         //! (13) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
@@ -332,7 +329,6 @@ void BiCGSTAB2::solve(
 
         //! (17) \f$ t = A s\f$
 //          t.noalias() = Matrix * s;
-//        MPI_Barrier(communicator);
         Matrix.Multiply(false, s, t);
 
         /*!
@@ -428,7 +424,7 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
-    MPI_Barrier(communicator);
+//    MPI_Barrier(communicator);
 }
 
 template<class Preco, class MatrixType, class VectorType>
@@ -774,7 +770,7 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
-    MPI_Barrier(communicator);
+//    MPI_Barrier(communicator);
 }
 }
 

@@ -70,11 +70,10 @@ public:
     CG(MPI_Comm _comm) :
         Base(_comm) {
     }
-    ;
 
     ~CG() {
     }
-    ;
+
 
     /*!
      * \brief Conjugate Gradient method
@@ -215,7 +214,8 @@ void CG::solve(
         }
 
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
-        Matrix.Multiply(false, d, tmp);
+//        Matrix.Multiply(false, d, tmp);
+        wrp_mpi::Multiply(Matrix, d, tmp, false);
         d.Dot(tmp, &temp);
 //        temp = wrp_mpi::Dot(d, tmp, size);
         alpha /= temp;			// Possible break down if temp == 0.0
