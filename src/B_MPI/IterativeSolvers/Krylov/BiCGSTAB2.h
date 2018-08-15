@@ -16,6 +16,7 @@
 
 #include "../../SSE/Wrappers.h"
 #include "../SolversBase.h"
+#include <Epetra_Time.h>
 
 namespace slv_mpi {
 
@@ -438,9 +439,8 @@ void BiCGSTAB2::solve(
                     VectorType &x0) {
 
     double time1, time2, min_time, max_time, full_time;
-    Epetra_Time time(communicator);
 
-    time1 = time.WallTime();
+    time1 = MPI_Wtime();
     int k = 0;                          // iteration number
     double alpha = 0.;                  // part of the method
     double rho[2] = {0.};               // part of the method
@@ -556,7 +556,7 @@ void BiCGSTAB2::solve(
     }
     ++k;
 
-    time2 = time.WallTime();
+    time2 = MPI_Wtime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
     if (myRank == 0) {
@@ -564,7 +564,7 @@ void BiCGSTAB2::solve(
         std::cout << "Setup time: " << full_time << std::endl;
     }
 
-    time1 = time.WallTime();
+    time1 = MPI_Wtime();
     //! Start iterative loop
     while(1) {
 
@@ -776,7 +776,7 @@ void BiCGSTAB2::solve(
 
         ++k;
     }
-    time2 = time.WallTime();
+    time2 = MPI_Wtime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
     if (myRank == 0) {
@@ -784,7 +784,7 @@ void BiCGSTAB2::solve(
         std::cout << "Solve time: " << full_time << std::endl;
     }
 
-    time1 = time.WallTime();
+    time1 = MPI_Wtime();
     precond.solve(Matrix, tmp, x, false);
     wrp_mpi::Copy(x.Values(), tmp.Values(), size);
 
@@ -795,7 +795,7 @@ void BiCGSTAB2::solve(
     iterations_num = k;
     residual_norm = convergence_check;
 
-    time2 = time.WallTime();
+    time2 = MPI_Wtime();
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
     MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
     if (myRank == 0) {
