@@ -12,5 +12,6 @@
 #include "IterativeSolvers/Krylov/BiCG.h"
 #include "IterativeSolvers/Krylov/BiCGSTAB.h"
 #include "IterativeSolvers/Krylov/BiCGSTAB2.h"
+#include "IterativeSolvers/Krylov/IBiCGSTAB2.h"
 
 #endif /* ITERATIVESOLVERS_H_ */

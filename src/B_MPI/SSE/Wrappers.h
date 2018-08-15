@@ -77,7 +77,6 @@ inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) 
  * @param size Size of provided vector
  * @return Dot product
  */
-
 inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     /* Original code */
 #ifndef USE_MAGIC_POWDER
@@ -113,6 +112,57 @@ inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 
     return res_comm;
+#endif
+}
+
+/*!
+ * \brief Local dot product of two dense vectors
+ *
+ * Function calls for parallelized SSE2 version of vector-vector multiplication if flag
+ * USE_MAGIC_POWDER has been defined. Otherwise standard Eigen's method will be called.
+ *
+ * If flag BUMBLEBEE_USE_OPENMP was defined instead of flag USE_MAGIC_POWDER regular OpenMP
+ * implementation will be invoked (i.e. without explicit SSE2 usage).
+ *
+ * \note Doesn't call for All_Reduce() but returns local dot product.
+ *
+ * @param v1 First vector
+ * @param v2 Second vector
+ * @param size Size of provided vector
+ * @return Dot product
+ */
+inline long double DotLocal(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
+    /* Original code */
+#ifndef USE_MAGIC_POWDER
+    long double res = 0.0L;
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for reduction(+:res)
+#endif
+    for(uint32_t i = 0; i < size; ++i)
+        res += v1[i] * v2[i];
+    return res;
+#else
+    /* Second optimized code */
+    long double res = 0.0L;
+    uint32_t i = 0;
+    int lvl = 4;                                    // unrolling level
+#ifdef USE_MAGIC_POWDER
+    _mm_prefetch((char*)v1, _MM_HINT_T1);
+    _mm_prefetch((char*)v2, _MM_HINT_T1);
+#endif
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for reduction(+:res)
+#endif
+    for(uint32_t i = 0; i < ROUND_DOWN(size, lvl); i+=lvl) {
+        __m128d r1 = _mm_mul_pd(_mm_load_pd(v1 + i), _mm_load_pd(v2 + i));
+        __m128d r2 = _mm_mul_pd(_mm_load_pd(v1 + i + 2), _mm_load_pd(v2 + i + 2));
+        r1 = _mm_add_pd(r1, r2);
+        res += _mm_cvtsd_f64(_mm_hadd_pd(r1, r1));
+    }
+    for(i = ROUND_DOWN(size, lvl); i < size; ++i)
+        res += v1[i] * v2[i];
+
+    return res;
 #endif
 }
 

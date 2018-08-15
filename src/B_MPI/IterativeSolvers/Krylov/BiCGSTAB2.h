@@ -153,6 +153,8 @@ void BiCGSTAB2::solve(
     long double mu = 0.0L;              // part of the method, stored as a long to prevent overflow
     long double nu = 0.0L;              // part of the method, stored as a long to prevent overflow
     long double tau = 0.0L;             // part of the method, stored as a long to prevent overflow
+    long double reduced_g[5];           // used for global communication
+    long double reduced_l[5];           // used for global communication
 
     double convergence_check = 0.;      // keeps new residual
     double convergence_check_old = 0.;  // keeps old residual and used only is stalling checker is switched on
@@ -338,24 +340,32 @@ void BiCGSTAB2::solve(
          * GCR(2)-part
          */
         //! (18) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
-//          omega_1 = r.dot(s);
-//          mu = s.squaredNorm();
-//          nu = s.dot(t);
-//          tau = t.squaredNorm();
-        omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-        mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
-        nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
-        tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
+        //! (19) \f$ \omega_2 = <r, t> \f$
+//        omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
+//        mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
+//        nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
+//        tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
+//        omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
+
+        reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
+        reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
+        reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
+        reduced_g[3] = wrp_mpi::DotLocal(t.Values(), t.Values(), size, communicator);
+        reduced_g[4] = wrp_mpi::DotLocal(r.Values(), t.Values(), size, communicator);
+
+        MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
+
+        omega_1 = reduced_l[0];
+        mu = reduced_l[1];
+        nu = reduced_l[2];
+        tau = reduced_l[3];
+        omega_2 = reduced_l[4];
 
         if (mu == 0.0) {
             if (myRank == 0)
                 std::cout << "BiCGSTAB(2) has been interrupted due to (mu == 0.0)" << std::endl;
             break;
         }
-
-        //! (19) \f$ \omega_2 = <r, t> \f$
-//          omega_2 = r.dot(t);
-        omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
 
         //! (20) \f$ \tau = \tau - \nu^2 / \mu \f$
         tau -= nu * nu / mu;
@@ -451,6 +461,8 @@ void BiCGSTAB2::solve(
     long double mu = 0.0L;              // part of the method, stored as a long to prevent overflow
     long double nu = 0.0L;              // part of the method, stored as a long to prevent overflow
     long double tau = 0.0L;             // part of the method, stored as a long to prevent overflow
+    long double reduced_l[5];           // used for global communication
+    long double reduced_g[5];           // used for global communication
 
     double r_norm_0 = 0.;               // Preconditioned norm
     double convergence_check = 0.;      // keeps new residual
@@ -687,24 +699,26 @@ void BiCGSTAB2::solve(
          * GCR(2)-part
          */
         //! (19) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
-          omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-          mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
-          nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
-          tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
+        //! (20) \f$ \omega_2 = <r, t> \f$
+//        omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
+//        mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
+//        nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
+//        tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
+//        omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
 
-          //! (20) \f$ \omega_2 = <r, t> \f$
-          omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
-//        omega_1 = mu = nu = tau = omega_2 = 0.0;
-//#ifdef BUMBLEBEE_USE_OPENMP
-//#pragma omp parallel for reduction(+:omega_1, mu, nu, tau, omega_2) schedule(dynamic, 10000)
-//#endif
-//        for(int i = 0; i < size; ++i) {
-//            omega_1 += r.data()[i] * s.data()[i];
-//            mu += s.data()[i] * s.data()[i];
-//            nu += s.data()[i] * t.data()[i];
-//            tau += t.data()[i] * t.data()[i];
-//            omega_2 += r.data()[i] * t.data()[i];
-//        }
+        reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
+        reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
+        reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
+        reduced_g[3] = wrp_mpi::DotLocal(t.Values(), t.Values(), size, communicator);
+        reduced_g[4] = wrp_mpi::DotLocal(r.Values(), t.Values(), size, communicator);
+
+        MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
+
+        omega_1 = reduced_l[0];
+        mu = reduced_l[1];
+        nu = reduced_l[2];
+        tau = reduced_l[3];
+        omega_2 = reduced_l[4];
 
         if (mu == 0.0) {
             if (myRank == 0)
