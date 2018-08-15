@@ -391,16 +391,6 @@ void BiCGSTAB::solve(
                     VectorType &b,
                     VectorType &x0) {
 
-    /*
-     * First check if preconditioner has been built. If not - through a warning
-     * and call for the unpreconditioned method
-     */
-    if (!precond.IsBuilt()) {
-        std::cerr << "Warning! Preconditioner has not been built. Unpreconditioned method will be called instead..." << std::endl;
-        solve(Matrix, x, b, x0);
-        return;
-    }
-
     int k = 0;                              // iteration number
      double alpha = 0.;                 // part of the method
      double rho  = 0.;                  // part of the method
@@ -416,6 +406,18 @@ void BiCGSTAB::solve(
     const int myRank = x.Comm().MyPID ();
     const Epetra_BlockMap _Map = x.Map();
     int size = _Map.NumMyElements();        // local system size
+
+    /*
+     * First check if preconditioner has been built. If not - through a warning
+     * and call for the unpreconditioned method
+     */
+    if (!precond.IsBuilt()) {
+        if (myRank == 0) {
+            std::cerr << "Warning! Preconditioner has not been built. Unpreconditioned method will be called instead..." << std::endl;
+        }
+        solve(Matrix, x, b, x0);
+        return;
+    }
 
     VectorType r(_Map);
     VectorType r_hat_0(_Map);

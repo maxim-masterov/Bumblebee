@@ -219,8 +219,10 @@ void BiCGSTAB2::solve(
         return;
     }
 
-    if ( ifprint )
+    if ( ifprint ) {
+        if (myRank == 0)
         std::cout << k << '\t' << convergence_check/normalizer << std::endl;
+    }
     ++k;
 
     //! Start iterative loop

@@ -463,7 +463,7 @@ int main(int argc, char** argv) {
 //    solver.Iterate(30, 1.0E-8);
 
     slv_mpi::AMG amg;
-    slv_mpi::CG solver(comm.Comm());
+    slv_mpi::BiCGSTAB2 solver(comm.Comm());
     ML_Epetra::SetDefaults("DD",MLList);
 
     MLList.set("ML output", 0);
@@ -471,11 +471,11 @@ int main(int argc, char** argv) {
     MLList.set("increasing or decreasing","increasing");
     MLList.set("aggregation: type", "Uncoupled");
     MLList.set("smoother: type","Chebyshev");
-//    MLList.set("smoother: damping factor", 0.72);
+    MLList.set("smoother: damping factor", 0.72);
     MLList.set("smoother: sweeps",1);
     MLList.set("smoother: pre or post", "both");
     MLList.set("coarse: type","Amesos-KLU");
-    MLList.set("eigen-analysis: type", "cg");        // cg, Anorm, power-method
+    MLList.set("eigen-analysis: type", "cg");
     MLList.set("eigen-analysis: iterations", 7);
 
     amg.SetParameters(MLList);
@@ -496,8 +496,8 @@ int main(int argc, char** argv) {
     solver.PrintHistory(true, 1);
 
     time1 = time.WallTime();
-//    solver.solve(amg, *A, x, b, x);
-    solver.solve(*A, x, b, x);
+    solver.solve(amg, *A, x, b, x);
+//    solver.solve(*A, x, b, x);
     time2 = time.WallTime();
 
     amg.Destroy();
@@ -582,29 +582,31 @@ int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Ima
     int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm) {
 
     int my_rank = 0;
+
     MPI_Comm_rank(comm.Comm(), &my_rank);
 
-    geo::SMesh grid_scalar_no_ghost;
-    dist::Distributor dist;                                 // Object of distributed data
-    dcp::Decomposer decomp;                                 // Object of decomposed data
-    std::vector<geo::VectorTypes::VecCoord> grid_decomp;    // Set of decomposed grids (stored by the root process)
+    dcp::Decomposer decomp;
+    double sizes[3];
+    fb::Index3 nodes;
 
-    if (my_rank == 0) {
-        if (_Kmax != 1)
-            grid_scalar_no_ghost.GenerateGrid(L, H, D, _Imax, _Jmax, _Kmax, 0);
-        else
-            grid_scalar_no_ghost.GenerateGrid(L, H, _Imax, _Jmax, 0);
-        grid_scalar_no_ghost.CalculateProperties();
-    }
+    sizes[0] = L;
+    sizes[1] = H;
+    sizes[2] = D;
+
+    nodes.i = _Imax;
+    nodes.j = _Jmax;
+    nodes.k = _Kmax;
+    if (_Kmax <= 1)
+        nodes.k = 1;
 
     /* Get distributed scalar grid */
     grid.GetDistributedScalarGrid(
             MPI_COMM_WORLD,
             0,
             1,
-            grid_scalar_no_ghost,
-            decomp,
-            grid_decomp);
+            sizes,
+            nodes,
+            decomp);
 
     int num_loc_elements = grid.GetDistributor().GetMapLocToGlob().size();
     std::vector<int> list_global_elements(num_loc_elements);
@@ -613,11 +615,11 @@ int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Ima
         list_global_elements[n] = grid.GetDistributor().GetMapLocToGlob().data()[n];
 
     Map = new Epetra_Map(
-                            -1,                                     // Number of global elements or -1
-                            num_loc_elements,                       // Number of local elements
-                            list_global_elements.data(),            // Global IDs of local elements
-                            0,                                      // Starting index (C-based)
-                            comm);                                 // Epetra communicator
+                            -1,
+                            num_loc_elements,
+                            list_global_elements.data(),
+                            0,
+                            comm);
 
     return 0;
 }
