@@ -437,6 +437,10 @@ void BiCGSTAB2::solve(
                     VectorType &b,
                     VectorType &x0) {
 
+    double time1, time2, min_time, max_time, full_time;
+    Epetra_Time time(communicator);
+
+    time1 = time.WallTime();
     int k = 0;                          // iteration number
     double alpha = 0.;                  // part of the method
     double rho[2] = {0.};               // part of the method
@@ -552,6 +556,15 @@ void BiCGSTAB2::solve(
     }
     ++k;
 
+    time2 = time.WallTime();
+    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+    if (myRank == 0) {
+        full_time = max_time - min_time;
+        std::cout << "Setup time: " << full_time << std::endl;
+    }
+
+    time1 = time.WallTime();
     //! Start iterative loop
     while(1) {
 
@@ -763,6 +776,15 @@ void BiCGSTAB2::solve(
 
         ++k;
     }
+    time2 = time.WallTime();
+    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+    if (myRank == 0) {
+        full_time = max_time - min_time;
+        std::cout << "Solve time: " << full_time << std::endl;
+    }
+
+    time1 = time.WallTime();
     precond.solve(Matrix, tmp, x, false);
     wrp_mpi::Copy(x.Values(), tmp.Values(), size);
 
@@ -772,6 +794,14 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
+
+    time2 = time.WallTime();
+    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+    if (myRank == 0) {
+        full_time = max_time - min_time;
+        std::cout << "Extra time: " << full_time << std::endl;
+    }
 //    MPI_Barrier(communicator);
 }
 }
