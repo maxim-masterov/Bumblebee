@@ -26,12 +26,31 @@
 #include "ml_epetra_utils.h"
 #include "Teuchos_ParameterList.hpp"
 
+#include <Tpetra_Core.hpp>
+#include <Tpetra_MultiVector.hpp>
+#include <Tpetra_CrsMatrix.hpp>
+#include <Tpetra_Map.hpp>
+#include <Teuchos_Comm.hpp>
+#include <Teuchos_OrdinalTraits.hpp>
+#include <Teuchos_CommHelpers.hpp>
+#include <Tpetra_Version.hpp>
+
+#include <MueLu.hpp>
+//#include <MueLu_Level.hpp>
+//#include <MueLu_ParameterListInterpreter.hpp>
+//#include <MueLu_MLParameterListInterpreter.hpp>
+//#include <MueLu_ML2MueLuParameterTranslator.hpp>
+
 #include "B_MPI/IterativeSolvers.h"
 #include "B_MPI/AMG/AMG.h"
 #include "B_MPI/Assembly/Poisson.h"
 #include <SMesh.h>
 #include <Decomposer.h>
 #include <Distributor.h>
+
+typedef Tpetra::Map<> SpMap;
+typedef Tpetra::CrsMatrix<> SpMatrix;
+typedef Tpetra::Vector<> Vector;
 
 union _neighb {
     struct {
@@ -55,13 +74,8 @@ union _neighb {
 };
 
 inline double getRealTime();
-int StripeDecomposition(Epetra_Map *&Map, int _nx, int _ny, int _nz, int _size,
-    const Epetra_MpiComm &comm);
-int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Imax, int _Jmax,
-    int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm);
+int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, double L, double H, double D, int _Imax, int _Jmax,
+    int _Kmax, geo::SMesh &grid, Teuchos::RCP<Teuchos::MpiComm<int> > &comm);
 
 /*
  * Mimics build of coefficients
@@ -152,73 +166,148 @@ void BuildCoefficients(int i, int _ny, int _nz, int *MyGlobalElements, int NumGl
 //    std::cout << "\n";
 }
 
-void AssembleMatrixGlob(int dimension, Epetra_Map *Map, int _nx, int _ny, int _nz, Epetra_CrsMatrix *A) {
+//void
+//exampleRoutine (const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
+//                std::ostream& out)
+//{
+//  using std::endl;
+//  using Teuchos::Array;
+//  using Teuchos::ArrayRCP;
+//  using Teuchos::ArrayView;
+//  using Teuchos::outArg;
+//  using Teuchos::RCP;
+//  using Teuchos::rcp;
+//  using Teuchos::REDUCE_SUM;
+//  using Teuchos::reduceAll;
+//  const int myRank = comm->getRank ();
+//  // Print out the Tpetra software version information.
+//  if (myRank == 0) {
+//    out << Tpetra::version () << endl << endl;
+//  }
+//  // Type of the Tpetra::Map specialization to use.
+//  using map_type = Tpetra::Map<>;
+//  using vector_type = Tpetra::Vector<double>;
+//  using global_ordinal_type = vector_type::global_ordinal_type;
+//
+//  // Create a Tpetra Map
+//  // The total (global, i.e., over all MPI processes) number of
+//  // entries in the Map.
+//  //
+//  // For this example, we scale the global number of entries in the
+//  // Map with the number of MPI processes.  That way, you can run this
+//  // example with any number of MPI processes and every process will
+//  // still have a positive number of entries.
+//  const Tpetra::global_size_t numGlobalEntries = 2;//comm->getSize () * 5;
+//  const global_ordinal_type indexBase = 0;
+//
+//  // Construct a Map that puts the same number of equations on each
+//  // MPI process.
+//
+////  numGlobalEntries = 2;
+//  global_ordinal_type list[2] = {0, 1};
+//
+//  RCP<const map_type> contigMap =
+//    rcp (new map_type (numGlobalEntries, list, numGlobalEntries, indexBase, comm));
+//
+////  RCP<const map_type> contigMap =
+////    rcp (new map_type (numGlobalEntries, indexBase, comm));
+//
+////  const global_size_t numGlobalElements,
+////           const GlobalOrdinal indexList[],
+////           const LocalOrdinal indexListSize,
+////           const GlobalOrdinal indexBase,
+////           const Teuchos::RCP<const Teuchos::Comm<int> >& comm
+//
+//  vector_type x (contigMap);
+//
+//  x.putScalar (42.0);
+//}
+////
+//// The same main() driver routine as in the first Tpetra lesson.
+////
+//int
+//main (int argc, char *argv[])
+//{
+//  MPI_Init(&argc, &argv);
+//  {
+//    auto comm = Tpetra::getDefaultComm ();
+//    exampleRoutine (comm, std::cout);
+//    // Tell the Trilinos test framework that the test passed.
+//    if (comm->getRank () == 0) {
+//      std::cout << "End Result: TEST PASSED" << std::endl;
+//    }
+//  }
+//  MPI_Finalize();
+//  return 0;
+//}
 
-    int NumMyElements = A->Map().NumMyElements();           // Number of local elements
-    int *MyGlobalElements = A->Map().MyGlobalElements();    // Global index of local elements
-    int NumGlobalElements = A->Map().NumGlobalElements();   // Number of global elements
-
-    std::vector<double> Values(dimension + 1);
-    std::vector<int> Indices(dimension + 1);
-    _neighb weights;
-
-    int nynz = _ny * _nz;
-
-    for(int i = 0; i < NumMyElements; ++i) {
-
-        int NumEntries = 0;
-
-        BuildCoefficients(i, _ny, _nz, MyGlobalElements, NumGlobalElements, weights);
-
-        if (fabs(weights.name.West) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] - nynz;
-            Values[NumEntries] = weights.name.West;
-            ++NumEntries;
-        }
-
-        if (fabs(weights.name.South) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] - _nz;
-            Values[NumEntries] = weights.name.South;
-            ++NumEntries;
-        }
-
-        if (fabs(weights.name.Bottom) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] - 1;
-            Values[NumEntries] = weights.name.Bottom;
-            ++NumEntries;
-        }
-
-        Indices[NumEntries] = MyGlobalElements[i];
-        Values[NumEntries] = weights.name.Cent;
-        ++NumEntries;
-
-        if (fabs(weights.name.Top) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] + 1;
-            Values[NumEntries] = weights.name.Top;
-            ++NumEntries;
-        }
-
-        if (fabs(weights.name.North) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] + _nz;
-            Values[NumEntries] = weights.name.North;
-            ++NumEntries;
-        }
-
-        if (fabs(weights.name.East) > DBL_EPSILON) {
-            Indices[NumEntries] = MyGlobalElements[i] + nynz;
-            Values[NumEntries] = weights.name.East;
-            ++NumEntries;
-        }
-
-        // Put in off-diagonal entries
-        A->InsertGlobalValues(MyGlobalElements[i], NumEntries, Values.data(), Indices.data());
-    }
-
-    Values.clear();
-    Indices.clear();
-
-    A->FillComplete();
-}
+//void AssembleMatrixGlob(int dimension, SpMap *Map, int _nx, int _ny, int _nz, SpMatrix *A) {
+//
+//    int NumMyElements = A->getMap().NumMyElements();           // Number of local elements
+//    int *MyGlobalElements = A->getMap().MyGlobalElements();    // Global index of local elements
+//    int NumGlobalElements = A->getMap().NumGlobalElements();   // Number of global elements
+//
+//    std::vector<double> Values(dimension + 1);
+//    std::vector<int> Indices(dimension + 1);
+//    _neighb weights;
+//
+//    int nynz = _ny * _nz;
+//
+//    for(int i = 0; i < NumMyElements; ++i) {
+//
+//        int NumEntries = 0;
+//
+//        BuildCoefficients(i, _ny, _nz, MyGlobalElements, NumGlobalElements, weights);
+//
+//        if (fabs(weights.name.West) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] - nynz;
+//            Values[NumEntries] = weights.name.West;
+//            ++NumEntries;
+//        }
+//
+//        if (fabs(weights.name.South) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] - _nz;
+//            Values[NumEntries] = weights.name.South;
+//            ++NumEntries;
+//        }
+//
+//        if (fabs(weights.name.Bottom) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] - 1;
+//            Values[NumEntries] = weights.name.Bottom;
+//            ++NumEntries;
+//        }
+//
+//        Indices[NumEntries] = MyGlobalElements[i];
+//        Values[NumEntries] = weights.name.Cent;
+//        ++NumEntries;
+//
+//        if (fabs(weights.name.Top) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] + 1;
+//            Values[NumEntries] = weights.name.Top;
+//            ++NumEntries;
+//        }
+//
+//        if (fabs(weights.name.North) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] + _nz;
+//            Values[NumEntries] = weights.name.North;
+//            ++NumEntries;
+//        }
+//
+//        if (fabs(weights.name.East) > DBL_EPSILON) {
+//            Indices[NumEntries] = MyGlobalElements[i] + nynz;
+//            Values[NumEntries] = weights.name.East;
+//            ++NumEntries;
+//        }
+//
+//        // Put in off-diagonal entries
+//        A->InsertGlobalValues(MyGlobalElements[i], NumEntries, Values.data(), Indices.data());
+//    }
+//
+//    Values.clear();
+//    Indices.clear();
+//
+//    A->FillComplete();
+//}
 
 int main(int argc, char** argv) {
 
@@ -254,270 +343,126 @@ int main(int argc, char** argv) {
         _ny = 20;
         _nz = 80;
         NumGlobalElements = _nx * _ny * _nz;
-//        std::cout << "Runned with 1 thread..." << std::endl;
     }
 
     MPI_Init(&argc, &argv);
-    Epetra_MpiComm comm(MPI_COMM_WORLD);
+    {
+        Teuchos::RCP<Teuchos::MpiComm<int> > comm;
 
-    // Epetra_Comm has methods that wrap basic MPI functionality.
-    // MyPID() is equivalent to MPI_Comm_rank, and NumProc() to
-    // MPI_Comm_size.
-    //
-    // With a "serial" communicator, the rank is always 0, and the
-    // number of processes is always 1.
-    const int myRank = comm.MyPID();
-    const int numProcs = comm.NumProc();
-    Epetra_Time time(comm);
-    double min_time, max_time;
-    double time1, time2, full;
+        /*
+         * Sparse matrix. 3 - is a guessed number of non-zeros per row
+         */
+        int dimension;
+        if (_nz == 1)
+            dimension = 4;
+        else
+            dimension = 6;
 
-    if (myRank == 0) std::cout << "Problem size: " << NumGlobalElements << std::endl;
+        geo::SMesh grid;
+        Teuchos::RCP<SpMap> myMap;
+        Full3dDecomposition(myMap, 0.05, 0.05, 1.4, _nx + 1, _ny + 1, _nz + 1, grid, comm);
 
-//    Epetra_Map Map(NumGlobalElements, 0, comm);
+        const int myRank = comm->getRank();
+        const int numProcs = comm->getSize();
 
-//    int NumMyElements = Map.NumMyElements();            // Number of local elements
-//    int *MyGlobalElements = Map.MyGlobalElements();    // Global index of local elements
+        double min_time, max_time;
+        double time1, time2, full;
 
-    /*
-     * Sparse matrix. 3 - is a guessed number of non-zeros per row
-     */
-    int dimension;
-    if (_nz == 1)
-        dimension = 4;
-    else
-        dimension = 6;
+        if (myRank == 0) std::cout << "Problem size: " << NumGlobalElements << std::endl;
 
-    Epetra_Map *myMap = nullptr;  // if create do not forget do delete!
-//    StripeDecomposition(myMap, _nx, _ny, _nz, NumGlobalElements, comm);
-//    Decomposition2(myMap, NumGlobalElements, comm);
-    geo::SMesh grid;
-    Full3dDecomposition(myMap, 0.05, 0.05, 1.4, _nx + 1, _ny + 1, _nz + 1, grid, comm);
+        /*
+         * Lowlevel matrix assembly (row-by-row from left to right)
+         */
+        Teuchos::RCP<SpMatrix> A(new SpMatrix (myMap, dimension+1));
 
-    /*
-     * Lowlevel matrix assembly (row-by-row from left to right)
-     */
-    Epetra_CrsMatrix *A;
-    A = new Epetra_CrsMatrix(Copy, *myMap, dimension+1, false);
+        time1 = MPI_Wtime();
+    //    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
+        slv_mpi::Poisson poisson;
+        poisson.AssemblePoisson(*A, _nx, _ny, _nz);
+        time2 = MPI_Wtime();
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (myRank == 0) {
+            full = max_time - min_time;
+            std::cout << "Assembly time: " << full << std::endl;
+        }
 
-    time1 = time.WallTime();
-//    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
-    slv_mpi::Poisson poisson;
-    poisson.AssemblePoisson(*A, _nx, _ny, _nz);
-    time2 = time.WallTime();
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-    if (myRank == 0) {
-        full = max_time - min_time;
-        std::cout << "Assembly time: " << full << std::endl;
+
+        /*
+         * Create vectors for Unknowns and RHS
+         */
+        Vector x(myMap);
+        Vector b(myMap, false);
+
+        double dx = 1./(_nx-1);
+        b.putScalar(1000. *dx * dx);
+
+        /*
+         * Create
+         */
+        time1 = MPI_Wtime();
+        // create a parameter list for ML options
+
+    //    RCP<MueLu::TpetraOperator<> > M = MueLu::CreateTpetraPreconditioner((RCP<operator_type>)A, mueluParams);
+        slv_mpi::AMG amg;
+        slv_mpi::BiCGSTAB2 solver(*comm->getRawMpiComm());
+
+        Teuchos::ParameterList MLList;
+        ML_Epetra::SetDefaults("SA",MLList);
+        MLList.set("ML output", 0);
+        MLList.set("max levels",5);
+        MLList.set("increasing or decreasing","increasing");
+        MLList.set("aggregation: type", "Uncoupled");
+        MLList.set("smoother: type","Chebyshev");
+        MLList.set("smoother: damping factor", 0.72);
+        MLList.set("smoother: sweeps",1);
+        MLList.set("smoother: pre or post", "both");
+        MLList.set("coarse: type","Amesos-KLU");
+        MLList.set("eigen-analysis: type", "cg");
+        MLList.set("eigen-analysis: iterations", 7);
+
+
+//        Teuchos::RCP<MueLu::TpetraOperator> mueLuPreconditioner;
+        Teuchos::ParameterList paramList;
+        paramList.set("verbosity", "medium");
+        paramList.set("multigrid algorithm", "sa");
+        paramList.set("aggregation: type", "uncoupled");
+        paramList.set("smoother: type", "CHEBYSHEV");
+        paramList.set("coarse: max size", 500);
+//        mueLuPreconditioner = Teuchos::rcp(MueLu::CreateTpetraPreconditioner(*A, paramList));
+
+        amg.SetParameters(MLList);
+        time1 = MPI_Wtime();
+//        amg.Coarse(*A);
+        time2 = MPI_Wtime();
+
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (myRank == 0) {
+            full = max_time - min_time;
+            std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
+        }
+
+        solver.SetStopCriteria(RNORM);
+        solver.SetMaxIter(100);
+        solver.SetTolerance(1e-8);
+        solver.PrintHistory(true, 1);
+
+        time1 = MPI_Wtime();
+    //    solver.solve(amg, *A, x, b, x);
+//        solver.solve(*A, x, b, x);
+        time2 = MPI_Wtime();
+
+        amg.Destroy();
+
+        /* time2 */
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (myRank == 0) {
+            full = max_time - min_time;
+            std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
+        }
     }
-
-    /*
-     * Epetra vectors for Unknowns and RHS
-     */
-    Epetra_Vector x(*myMap);
-    Epetra_Vector b(*myMap, false);
-//    Epetra_Vector x(Map);
-//    Epetra_Vector b(Map, false);
-
-    double dx = 1./(_nx-1);
-    b.PutScalar(1000. *dx * dx);
-
-//    slv::Precond p;
-//    p.build(*balanced_matrix, Jacobi_p);
-//  p.print();
-
-    time1 = time.WallTime();
-
-    /* **************************** */
-    /* **************************** */
-    /* **************************** */
-
-    // create a parameter list for ML options
-    Teuchos::ParameterList MLList;
-    // Sets default parameters for classic smoothed aggregation. After this
-    // call, MLList contains the default values for the ML parameters,
-    // as required by typical smoothed aggregation for symmetric systems.
-    // Other sets of parameters are available for non-symmetric systems
-    // ("DD" and "DD-ML"), and for the Maxwell equations ("maxwell").
-//    ML_Epetra::SetDefaults("SA",MLList);
-//    // overwrite some parameters. Please refer to the user's guide
-//    // for more information
-//    // some of the parameters do not differ from their default value,
-//    // and they are here reported for the sake of clarity
-//    // output level, 0 being silent and 10 verbose
-//    MLList.set("ML output", 0);
-//    // maximum number of levels
-//    MLList.set("max levels",5);
-//    // set finest level to 0
-//    MLList.set("increasing or decreasing","increasing");
-//    // use Uncoupled scheme to create the aggregate
-//    MLList.set("aggregation: type", "Uncoupled");
-//    // smoother is Chebyshev. Example file
-//    // `ml/examples/TwoLevelDD/ml_2level_DD.cpp' shows how to use
-//    // AZTEC's preconditioners as smoothers
-//    MLList.set("smoother: type","Chebyshev");
-//    MLList.set("smoother: sweeps",1);
-//    // use both pre and post smoothing
-//    MLList.set("smoother: pre or post", "both");
-//  #ifdef HAVE_ML_AMESOS
-//    // solve with serial direct solver KLU
-//    MLList.set("coarse: type","Amesos-KLU");
-//  #else
-//    // this is for testing purposes only, you should have
-//    // a direct solver for the coarse problem (either Amesos, or the SuperLU/
-//    // SuperLU_DIST interface of ML)
-//    MLList.set("coarse: type","Jacobi");
-//  #endif
-    // Creates the preconditioning object. We suggest to use `new' and
-    // `delete' because the destructor contains some calls to MPI (as
-    // required by ML and possibly Amesos). This is an issue only if the
-    // destructor is called **after** MPI_Finalize().
-    double time3 = time.WallTime();
-    ML_Epetra::MultiLevelPreconditioner* MLPrec = nullptr;
-//      new ML_Epetra::MultiLevelPreconditioner(*A, MLList);
-
-    double time4 = time.WallTime();
-    MPI_Reduce(&time3, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
-    MPI_Reduce(&time4, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-    if (myRank == 0) {
-        full = max_time - min_time;
-        std::cout << "ML time: " << "\t" << full << std::endl;
-    }
-
-    // verify unused parameters on process 0 (put -1 to print on all
-    // processes)
-    if (MLPrec != nullptr)
-        MLPrec->PrintUnused(0);
-  #ifdef ML_SCALING
-    timeVec[precBuild].value = MPI_Wtime() - timeVec[precBuild].value;
-  #endif
-    // ML allows the user to cheaply recompute the preconditioner. You can
-    // simply uncomment the following line:
-    //
-    // MLPrec->ReComputePreconditioner();
-    //
-    // It is supposed that the linear system matrix has different values, but
-    // **exactly** the same structure and layout. The code re-built the
-    // hierarchy and re-setup the smoothers and the coarse solver using
-    // already available information on the hierarchy. A particular
-    // care is required to use ReComputePreconditioner() with nonzero
-    // threshold.
-    // =========================== end of ML part =============================
-    // tell AztecOO to use the ML preconditioner, specify the solver
-    // and the output, then solve with 500 maximum iterations and 1e-12
-    // of tolerance (see AztecOO's user guide for more details)
-
-    /* **************************** */
-    /* **************************** */
-    /* **************************** */
-
-    // Create Linear Problem
-    Epetra_LinearProblem problem;
-
-    problem.SetOperator(A);
-    problem.SetLHS(&x);
-    problem.SetRHS(&b);
-
-    // Create AztecOO instance
-//#define AZ_r0               0 /* ||r||_2 / ||r^{(0)}||_2                      */
-//#define AZ_rhs              1 /* ||r||_2 / ||b||_2                            */
-//#define AZ_Anorm            2 /* ||r||_2 / ||A||_infty                        */
-//#define AZ_sol              3 /* ||r||_infty/(||A||_infty ||x||_1+||b||_infty)*/
-//#define AZ_weighted         4 /* ||r||_WRMS                                   */
-//#define AZ_expected_values  5 /* ||r||_WRMS with weights taken as |A||x0|     */
-//#define AZ_noscaled         6 /* ||r||_2                                      */
-//#define AZTECOO_conv_test   7 /* Convergence test will be done via AztecOO    */
-//#define AZ_inf_noscaled     8 /* ||r||_infty
-
-//    AztecOO solver(problem);
-//    solver.SetAztecOption(AZ_conv, AZ_r0);
-//    solver.SetAztecOption(AZ_solver, AZ_bicgstab);
-//    solver.SetAztecOption(AZ_precond, AZ_none);
-//    solver.SetAztecOption(AZ_output, 1);
-//    solver.Iterate(50, 1.0E-8);
-
-    std::cout << "====== " << myMap->NumMyElements() << " " << myMap->NumGlobalElements() << "\n";
-
-//    // Create AztecOO instance
-//    AztecOO solver(problem);
-//
-////    ML_Epetra::MultiLevelPreconditioner MLPrec2(*A, MLList);
-//
-//    double time5 = time.WallTime();
-//    solver.SetPrecOperator(MLPrec);
-//    double time6 = time.WallTime();
-//    MPI_Reduce(&time5, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
-//    MPI_Reduce(&time6, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-//    if (myRank == 0) {
-//        full = max_time - min_time;
-//        std::cout << "SetPrecOperator() time: " << "\t" << full << std::endl;
-//    }
-//    solver.SetAztecOption(AZ_conv, AZ_noscaled);
-//    solver.SetAztecOption(AZ_solver, AZ_bicgstab);
-//    solver.SetAztecOption(AZ_output, 1);
-////    solver.SetAztecOption(AZ_precond, AZ_dom_decomp);//AZ_ilu);//AZ_dom_decomp);
-////    solver.SetAztecOption(AZ_subdomain_solve, AZ_icc);
-//    solver.SetAztecOption(AZ_precond, AZ_Jacobi);
-//    solver.SetAztecOption(AZ_omega, 0.72);
-//    solver.Iterate(30, 1.0E-8);
-
-    slv_mpi::AMG amg;
-    slv_mpi::BiCGSTAB2 solver(comm.Comm());
-    ML_Epetra::SetDefaults("DD",MLList);
-
-    MLList.set("ML output", 0);
-    MLList.set("max levels",5);
-    MLList.set("increasing or decreasing","increasing");
-    MLList.set("aggregation: type", "Uncoupled");
-    MLList.set("smoother: type","Chebyshev");
-    MLList.set("smoother: damping factor", 0.72);
-    MLList.set("smoother: sweeps",1);
-    MLList.set("smoother: pre or post", "both");
-    MLList.set("coarse: type","Amesos-KLU");
-    MLList.set("eigen-analysis: type", "cg");
-    MLList.set("eigen-analysis: iterations", 7);
-
-    amg.SetParameters(MLList);
-    time1 = time.WallTime();
-    amg.Coarse(*A);
-    time2 = time.WallTime();
-
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-    if (myRank == 0) {
-        full = max_time - min_time;
-        std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
-    }
-
-    solver.SetStopCriteria(RNORM);
-    solver.SetMaxIter(100);
-    solver.SetTolerance(1e-8);
-    solver.PrintHistory(true, 1);
-
-    time1 = time.WallTime();
-    solver.solve(amg, *A, x, b, x);
-//    solver.solve(*A, x, b, x);
-    time2 = time.WallTime();
-
-    amg.Destroy();
-
-    /* time2 */
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, comm.Comm());
-    if (myRank == 0) {
-        full = max_time - min_time;
-        std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
-    }
-
-    /* **************************** */
-    /* **************************** */
-    /* **************************** */
-
-    delete myMap;
-    delete A;
-    delete MLPrec;
-
 #ifdef HAVE_MPI
     // Since you called MPI_Init, you are responsible for calling
     // MPI_Finalize after you are done using MPI.
@@ -533,57 +478,8 @@ inline double getRealTime() {
     return (double)tv.tv_sec + 1.0e-6 * (double)tv.tv_usec;
 }
 
-int StripeDecomposition(Epetra_Map *&Map, int _nx, int _ny, int _nz, int _size,
-    const Epetra_MpiComm &comm) {
-
-    int myRank = comm.MyPID();
-    int numProc = comm.NumProc();
-    int chunk_size;
-    int chunk_start;
-    int chunk_end;
-    int nynz;
-
-    /*
-     * First check if this kind of decomposition is possible at all
-     */
-    if (numProc > _nx) {
-        if (myRank == 0)
-            std::cout << "ERROR: Map for stripe decomposition can't be performed, since number "
-                "of cores is greater than number of nodes along x direction.\n"
-                "Standard Epetra Map will be create instead...\t" << std::endl;
-        Map = new Epetra_Map(_size, 0, comm);
-        return 1;
-    }
-
-    /*
-     * Treat 2d case
-     */
-    if (_nz == 0) _nz = 1;
-
-    nynz = _ny * _nz;
-
-    chunk_size = _nx / numProc; // because c always round to the lower boundary
-    chunk_start = myRank * chunk_size;
-    chunk_end = chunk_start + chunk_size;
-
-    /*
-     * Assign last process with the end of domain, so it will contain last stripe
-     */
-    if (myRank == (numProc - 1)) chunk_end = _nx;
-
-    chunk_size = (chunk_end - chunk_start) * nynz;
-
-    Map = new Epetra_Map(_size, chunk_size, 0, comm);
-
-    return 0;
-}
-
-int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Imax, int _Jmax,
-    int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm) {
-
-    int my_rank = 0;
-
-    MPI_Comm_rank(comm.Comm(), &my_rank);
+int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, double L, double H, double D, int _Imax, int _Jmax,
+    int _Kmax, geo::SMesh &grid, Teuchos::RCP<Teuchos::MpiComm<int> > &comm) {
 
     dcp::Decomposer decomp;
     double sizes[3];
@@ -614,156 +510,12 @@ int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Ima
     for(size_t n = 0; n < num_loc_elements; ++n)
         list_global_elements[n] = grid.GetDistributor().GetMapLocToGlob().data()[n];
 
-    Map = new Epetra_Map(
-                            -1,
-                            num_loc_elements,
-                            list_global_elements.data(),
-                            0,
-                            comm);
+    comm = Teuchos::rcp(new Teuchos::MpiComm<int> (grid.GetLocMPIComm()));
 
+    Map = Teuchos::rcp(new SpMap(grid.GetDistributor().GetMapGlobToLoc().size(),
+                                 list_global_elements.data(),
+                                 num_loc_elements,
+                                 0,
+                                 comm));
     return 0;
 }
-
-int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-            MyGlobalElements[2] = 4;
-            MyGlobalElements[3] = 5;
-            break;
-
-        case 1:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 6;
-            MyGlobalElements[3] = 7;
-            break;
-
-        case 2:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 8;
-            MyGlobalElements[1] = 9;
-            MyGlobalElements[2] = 12;
-            MyGlobalElements[3] = 13;
-            break;
-
-        case 3:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 10;
-            MyGlobalElements[1] = 11;
-            MyGlobalElements[2] = 14;
-            MyGlobalElements[3] = 15;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-
-int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-            MyGlobalElements[2] = 4;
-            MyGlobalElements[3] = 5;
-            break;
-
-        case 1:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 6;
-            MyGlobalElements[3] = 7;
-            break;
-
-        case 2:
-            MyElements = 8;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 8;
-            MyGlobalElements[1] = 9;
-            MyGlobalElements[2] = 10;
-            MyGlobalElements[3] = 11;
-            MyGlobalElements[4] = 12;
-            MyGlobalElements[5] = 13;
-            MyGlobalElements[6] = 14;
-            MyGlobalElements[7] = 15;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-
-
-int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 8;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-
-            MyGlobalElements[2] = 5;
-            MyGlobalElements[3] = 6;
-
-            MyGlobalElements[4] = 10;
-            MyGlobalElements[5] = 11;
-
-            MyGlobalElements[6] = 15;
-            MyGlobalElements[7] = 16;
-            break;
-
-        case 1:
-            MyElements = 12;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 4;
-
-            MyGlobalElements[3] = 7;
-            MyGlobalElements[4] = 8;
-            MyGlobalElements[5] = 9;
-
-            MyGlobalElements[6] = 12;
-            MyGlobalElements[7] = 13;
-            MyGlobalElements[8] = 14;
-
-            MyGlobalElements[9] = 17;
-            MyGlobalElements[10] = 18;
-            MyGlobalElements[11] = 19;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-

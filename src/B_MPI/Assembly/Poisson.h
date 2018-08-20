@@ -51,14 +51,16 @@ namespace slv_mpi {
 		 * Matrix.Print(std::cout);
 		 * \endcode
 		 *
+		 * @param comm MPI communicator
 		 * @param Matrix Outgoing filled matrix
 		 * @param nx Number of nodes along x direction
 		 * @param ny Number of nodes along y direction
 		 * @param nz Number of nodes along z direction (optional)
 		 */
-		void	AssemblePoisson(
-					const Epetra_MpiComm &comm,
-					Epetra_CrsMatrix *&Matrix,
+		template <typename Comm, typename SpMatrix>
+		void AssemblePoisson(
+					const Comm &comm,
+					SpMatrix *&Matrix,
 					int nx,
 					int ny,
 					int nz = 0) {
@@ -236,13 +238,12 @@ namespace slv_mpi {
 		 * @param ny Number of elements along y direction
 		 * @param nz Number of elements along z direction (optional)
 		 */
-		void	AssemblePoisson(
-					Epetra_CrsMatrix &Matrix,
+		template <typename SpMatrix>
+		void AssemblePoisson(
+		            SpMatrix &Matrix,
 					int nx,
 					int ny,
 					int nz = 0) {
-
-			Epetra_Map Map = Matrix.RowMap();
 
 			int Size;					// Number of rows of Matrix
 			int nynz = 0;				// Number of elements in one YZ-plane
@@ -283,8 +284,8 @@ namespace slv_mpi {
 			double *Values = new double[dimension];				// Array of values in a row (excluding diagonal)
 			int *Indices = new int[dimension];					// Array of column indices (excluding diagonal)
 			int NumEntries;										// Number of non zeros in a row
-			int NumMyElements = Map.NumMyElements();			// Number of local elements
-			int *MyGlobalElements = Map.MyGlobalElements( );	// Global index of local elements
+			Tpetra::global_size_t NumMyElements = Matrix.getMap()->getNodeNumElements();			// Number of local elements
+			typename Teuchos::ArrayView<const int> MyGlobalElements = Matrix.getMap()->getNodeElementList();	// Global index of local elements
 
 			/*
 			 * Fill off-diagonal elements
@@ -327,6 +328,10 @@ namespace slv_mpi {
 					++NumEntries;
 				}
 
+                Indices[NumEntries] = MyGlobalElements[i];
+                Values[NumEntries] = diag;
+                ++NumEntries;
+
 				if ( (MyGlobalElements[i]+1) % nz ) {
 					Indices[NumEntries] = MyGlobalElements[i] + 1;
 					++NumEntries;
@@ -353,15 +358,13 @@ namespace slv_mpi {
 				}
 
 				// Put in off-diagonal entries
-				Matrix.InsertGlobalValues(MyGlobalElements[i], NumEntries, Values, Indices);
-				// Put in the diagonal entry
-				Matrix.InsertGlobalValues(MyGlobalElements[i], 1, &diag, MyGlobalElements+i);
+				Matrix.insertGlobalValues(MyGlobalElements[i], NumEntries, Values, Indices);
 			}
 
 			/*
 			 * By default next method will optimize storage format
 			 */
-			Matrix.FillComplete();
+			Matrix.fillComplete();
 
 			delete [] Values;
 			delete [] Indices;
