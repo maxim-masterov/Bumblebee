@@ -246,7 +246,6 @@ void BiCGSTAB2::solve(
          * Even Bi-CG step
          */
         //! (3) \f$ \rho[1] = <\hat{r}_0, r>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-//          rho[1] = r_hat_0.dot(r);
         rho[1] = wrp_mpi::Dot(r_hat_0.Values(), r.Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
@@ -257,15 +256,12 @@ void BiCGSTAB2::solve(
         }
 
         //! (4) \f$ u = r - \beta u \f$
-//          u = r - beta * u;
         wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
 
         //! (5) \f$ v = A u \f$
-//          v.noalias() = Matrix * u;
         Matrix.Multiply(false, u, v);
 
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-//          gamma = v.dot(r_hat_0);
         gamma = wrp_mpi::Dot(v.Values(), r_hat_0.Values(), size, communicator);
 
         // Check for breakdown (probably may occur)
@@ -278,36 +274,28 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (7) \f$ r = r - \alpha v \f$
-//          r -= alpha * v;
         wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
 
         //! (8) \f$ s = A r \f$
-//          s.noalias()  = Matrix * r;
         Matrix.Multiply(false, r, s);
 
         //! (9) \f$ x = x + \alpha u \f$
-//          x += alpha * u;
         wrp_mpi::Update(x.Values(), u.Values(), 1., alpha, size);
         /*!
          * Odd Bi-CG step
          */
         //! (10) \f$ \rho[1] = <\hat{r}_0, s>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-//          rho[1] = r_hat_0.dot(s);
         rho[1] = wrp_mpi::Dot(r_hat_0.Values(), s.Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
 
         //! (11) \f$ v = s - \beta v \f$
-//          v = s - beta * v;
         wrp_mpi::Update(v.Values(), s.Values(), -beta, 1., size);
-//          wrp_mpi::Update2(x, u, 1., alpha, v, s, -beta, 1., size);
 
         //! (12) \f$ w = A v \f$
-//          w.noalias() = Matrix * v;
         Matrix.Multiply(false, v, w);
 
         //! (13) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-//          gamma = w.dot(r_hat_0);
         gamma = wrp_mpi::Dot(w.Values(), r_hat_0.Values(), size, communicator);
 
         // Check for breakdown (may occur if matrix is diagonal)
@@ -320,20 +308,15 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (14) \f$ u = r - \beta u \f$
-//          u = r - beta * u;
         wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
 
         //! (15) \f$ r = r - \alpha v \f$
-//          r -= alpha * v;
         wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
 
         //! (16) \f$ s = s - \alpha w\f$
-//          s -= alpha * w;
         wrp_mpi::Update(s.Values(), w.Values(), 1., -alpha, size);
-//          wrp_mpi::Update2(r, v, 1., -alpha, s, w, 1., -alpha, size);
 
         //! (17) \f$ t = A s\f$
-//          t.noalias() = Matrix * s;
         Matrix.Multiply(false, s, t);
 
         /*!
@@ -341,12 +324,6 @@ void BiCGSTAB2::solve(
          */
         //! (18) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (19) \f$ \omega_2 = <r, t> \f$
-//        omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-//        mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
-//        nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
-//        tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
-//        omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
-
         reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
         reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
         reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
@@ -383,19 +360,16 @@ void BiCGSTAB2::solve(
         omega_1 = (omega_1 - nu * omega_2) / mu;
 
         //! (23) \f$ x = x + \omega_1 r + \omega_2 s + \alpha u \f$
-//          x = x + omega_1 * r + omega_2 * s + alpha * u;
         wrp_mpi::Update(x.Values(), r.Values(), s.Values(), u.Values(), 1.,
                 static_cast<double>(omega_1), static_cast<double>(omega_2), alpha, size);
 
         //! (24) \f$ r = r - \omega_1 s - \omega_2 t \f$
-//          r = r - omega_1 * s - omega_2 * t;
         wrp_mpi::Update(r.Values(), s.Values(), t.Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         /*!
          * Check convergence
          */
-//          convergence_check = r.norm() / normalizer;
         convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator) / normalizer;
 
         if ( ifprint && !(k % print_each) ) {
@@ -425,7 +399,6 @@ void BiCGSTAB2::solve(
         }
 
         //! (25) \f$ u = u - \omega_1 v - \omega_2 w \f$
-//          u = u - omega_1 * v - omega_2 * w;
         wrp_mpi::Update(u.Values(), v.Values(), w.Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
@@ -437,7 +410,6 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
-//    MPI_Barrier(communicator);
 }
 
 template<class Preco, class MatrixType, class VectorType>
@@ -448,9 +420,9 @@ void BiCGSTAB2::solve(
                     VectorType &b,
                     VectorType &x0) {
 
-    double time1, time2, min_time, max_time, full_time;
-
-    time1 = MPI_Wtime();
+//    double time1, time2, min_time, max_time, full_time;
+//
+//    time1 = MPI_Wtime();
     int k = 0;                          // iteration number
     double alpha = 0.;                  // part of the method
     double rho[2] = {0.};               // part of the method
@@ -568,15 +540,15 @@ void BiCGSTAB2::solve(
     }
     ++k;
 
-    time2 = MPI_Wtime();
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-    if (myRank == 0) {
-        full_time = max_time - min_time;
-        std::cout << "Setup time: " << full_time << std::endl;
-    }
-
-    time1 = MPI_Wtime();
+//    time2 = MPI_Wtime();
+//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+//    if (myRank == 0) {
+//        full_time = max_time - min_time;
+//        std::cout << "Setup time: " << full_time << std::endl;
+//    }
+//
+//    time1 = MPI_Wtime();
     //! Start iterative loop
     while(1) {
 
@@ -700,12 +672,6 @@ void BiCGSTAB2::solve(
          */
         //! (19) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (20) \f$ \omega_2 = <r, t> \f$
-//        omega_1 = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-//        mu = wrp_mpi::Dot(s.Values(), s.Values(), size, communicator);
-//        nu = wrp_mpi::Dot(s.Values(), t.Values(), size, communicator);
-//        tau = wrp_mpi::Dot(t.Values(), t.Values(), size, communicator);
-//        omega_2 = wrp_mpi::Dot(r.Values(), t.Values(), size, communicator);
-
         reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
         reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
         reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
@@ -790,15 +756,15 @@ void BiCGSTAB2::solve(
 
         ++k;
     }
-    time2 = MPI_Wtime();
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-    if (myRank == 0) {
-        full_time = max_time - min_time;
-        std::cout << "Solve time: " << full_time << std::endl;
-    }
-
-    time1 = MPI_Wtime();
+//    time2 = MPI_Wtime();
+//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+//    if (myRank == 0) {
+//        full_time = max_time - min_time;
+//        std::cout << "Solve time: " << full_time << std::endl;
+//    }
+//
+//    time1 = MPI_Wtime();
     precond.solve(Matrix, tmp, x, false);
     wrp_mpi::Copy(x.Values(), tmp.Values(), size);
 
@@ -809,13 +775,13 @@ void BiCGSTAB2::solve(
     iterations_num = k;
     residual_norm = convergence_check;
 
-    time2 = MPI_Wtime();
-    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-    if (myRank == 0) {
-        full_time = max_time - min_time;
-        std::cout << "Extra time: " << full_time << std::endl;
-    }
+//    time2 = MPI_Wtime();
+//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
+//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
+//    if (myRank == 0) {
+//        full_time = max_time - min_time;
+//        std::cout << "Extra time: " << full_time << std::endl;
+//    }
 //    MPI_Barrier(communicator);
 }
 }

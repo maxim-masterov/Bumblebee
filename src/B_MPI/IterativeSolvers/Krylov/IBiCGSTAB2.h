@@ -94,24 +94,26 @@ public:
      * @param precond Object of preconditioner
      * @param Matrix Incoming matrix
      * @param x Vector of unknowns
-     * @param b Vector of RHS
+     * @param rhs Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class Preco, class MatrixType, class VectorType>
+//    template<class Preco, class MatrixType, class VectorType>
+    template<class MatrixType, class VectorType>
     void solve(
-                Preco &precond,
+//                Preco &precond,
                 MatrixType &Matrix,
                 VectorType &x,
-                VectorType &b,
+                VectorType &rhs,
                 VectorType &x0);
 };
 
-template<class Preco, class MatrixType, class VectorType>
+//template<class Preco, class MatrixType, class VectorType>
+template<class MatrixType, class VectorType>
 void IBiCGSTAB2::solve(
-                    Preco &precond,
+//                    Preco &precond,
                     MatrixType &Matrix,
                     VectorType &x,
-                    VectorType &b,
+                    VectorType &rhs,
                     VectorType &x0) {
 
     double time1, time2, min_time, max_time, full_time;
@@ -133,7 +135,7 @@ void IBiCGSTAB2::solve(
     double convergence_check_old = 0.;  // keeps old residual and used only is stalling checker is switched on
     double normalizer = 1.;             // normalizer for the residual
 
-    long double a, _b, c, d, e, f, g, h, k;
+    long double a, b, c, d, e, f, g, h, k;
 
     /*
      * MPI communicators
@@ -146,15 +148,15 @@ void IBiCGSTAB2::solve(
      * First check if preconditioner has been built. If not - through a warning
      * and call for the unpreconditioned method
      */
-    if (!precond.IsBuilt()) {
-        if (myRank == 0) {
-            std::cerr
-                << "Warning! Preconditioner has not been built. Unpreconditioned method will be called instead..."
-                << std::endl;
-        }
-//        solve(Matrix, x, b, x0);
-        return;
-    }
+//    if (!precond.IsBuilt()) {
+//        if (myRank == 0) {
+//            std::cerr
+//                << "Warning! Preconditioner has not been built. Unpreconditioned method will be called instead..."
+//                << std::endl;
+//        }
+////        solve(Matrix, x, b, x0);
+//        return;
+//    }
 
     VectorType r(_Map);
     VectorType r_hat_0(_Map);
@@ -166,16 +168,16 @@ void IBiCGSTAB2::solve(
     VectorType u(_Map);
     VectorType t_hat(_Map);
     VectorType w_hat(_Map);
-    VectorType tmp(_Map);
+//    VectorType tmp(_Map);
 
     // Right preconditioner
-    precond.solve(Matrix, tmp, x0, false);
-    x0 = tmp;
+//    precond.solve(Matrix, tmp, x0, false);
+//    x0 = tmp;
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
 //    r = (b - Matrix * x0);
     Matrix.Multiply(false, x0, v);
-    r = b;
+    r = rhs;
     r.Update(-1., v, 1.);
     wrp_mpi::Copy(r_hat_0.Values(), r.Values(), size);            // Actually r_hat_0 is an arbitrary vector
 
@@ -185,16 +187,17 @@ void IBiCGSTAB2::solve(
     Matrix.Multiply(false, t, u);
 
     //! (1) \f$ u = 0 \f$, \f$ w = 0 \f$, \f$ v = 0 \f$, \f$ \alpha = \rho[0] = \omega_1 = \omega_2 = 1\f$
+    wrp_mpi::Assign(x.Values(), 0.0, size);
     wrp_mpi::Assign(p.Values(), 0.0, size);
     wrp_mpi::Assign(v.Values(), 0.0, size);
     wrp_mpi::Assign(w.Values(), 0.0, size);
     alpha = rho[0] = rho[1] = omega_1 = omega_2 = 1.;
-    h = k = 0.;
+    h = k = g = 0.;
     f = 1.;
 
-    c = wrp_mpi::Dot(r_hat_0.Values(), r.Values(), size, communicator);
-    d = wrp_mpi::Dot(r_hat_0.Values(), s.Values(), size, communicator);
-    e = wrp_mpi::Dot(r_hat_0.Values(), t.Values(), size, communicator);
+    c = wrp_mpi::Dot(r.Values(), r_hat_0.Values(), size, communicator);
+    d = wrp_mpi::Dot(s.Values(), r_hat_0.Values(), size, communicator);
+    e = wrp_mpi::Dot(t.Values(), r_hat_0.Values(), size, communicator);
 
     //! (2) Solve \f$ M y = r \f$, set \f$ r = y \f$
     // Case of left preconditioner
@@ -214,7 +217,7 @@ void IBiCGSTAB2::solve(
             normalizer = r_norm_0;
             break;
         case RBNORM:
-            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
+            normalizer = wrp_mpi::Norm2(rhs.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer =  weight;
@@ -282,8 +285,6 @@ void IBiCGSTAB2::solve(
         }
 
         //! (5) \f$ u = r - \beta u \f$
-        /* p = r - beta * (p - omega_1 * v - omega_2 * w) */
-        /* v = s - omega_1 * t - omega_2 * u - beta * (v - omega_1 * w - omega_2 * x) */
         for(int i = 0; i < size; ++i) {
             p.Values()[i] = r.Values()[i] - beta * (p.Values()[i] - omega_1 * v.Values()[i] - omega_2 * w.Values()[i]);
             v.Values()[i] = s.Values()[i] - omega_1 * t.Values()[i] - omega_2 * u.Values()[i]
@@ -291,8 +292,9 @@ void IBiCGSTAB2::solve(
         }
 
         //! (6) \f$ v = A M^{-1} u \f$
-        precond.solve(Matrix, tmp, v, false);
-        Matrix.Multiply(false, tmp, w_hat);
+//        precond.solve(Matrix, tmp, v, false);
+//        Matrix.Multiply(false, tmp, w_hat);
+        Matrix.Multiply(false, v, w_hat);
 
         // Case of left preconditioner
 //          //! (6) \f$ v = M^{-1} A u \f$
@@ -300,7 +302,7 @@ void IBiCGSTAB2::solve(
 //          precond.solve(Matrix, v, tmp, false);
 
         //! (7) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = d - omega_1 * e - omega_2 * f - beta * (gamma - omega_1 * h - omega_2 * k);
+        gamma = d - omega_1 * e - omega_2 * f - beta * (g - omega_1 * h - omega_2 * k);
 
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
@@ -315,29 +317,30 @@ void IBiCGSTAB2::solve(
         wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
         /* s = s - omega_1 * t - omega_2 * u - alpha * w_hat */
         for(int i = 0; i < size; ++i) {
-            s.Values()[i] = s.Values()[i] - omega_1 * t.Values()[i] - omega_2 * u.Values()[i] - alpha * w_hat.Values()[i];
+            s.Values()[i] -= omega_1 * t.Values()[i] - omega_2 * u.Values()[i] - alpha * w_hat.Values()[i];
         }
 
         //! (9) \f$ s = A M^{-1} r \f$
-        precond.solve(Matrix, tmp, s, false);
-        Matrix.Multiply(false, tmp, t_hat);
+//        precond.solve(Matrix, tmp, s, false);
+//        Matrix.Multiply(false, tmp, t_hat);
+        Matrix.Multiply(false, s, t_hat);
 
         // Case of left preconditioner
 //          //! (9) \f$ s = M^{-1} A r \f$
 //          tmp  = Matrix * r;
 //          precond.solve(Matrix, s, tmp, false);
 
-        //! (10) \f$ x = x + \alpha u \f$
+        //! (10) \f$ x = x + \alpha p \f$
         wrp_mpi::Update(x.Values(), p.Values(), 1., alpha, size);
 
-        a = wrp_mpi::Dot(r_hat_0.Values(), t_hat.Values(), size, communicator);
-        _b = wrp_mpi::Dot(r_hat_0.Values(), w_hat.Values(), size, communicator);
+        a = wrp_mpi::Dot(t_hat.Values(), r_hat_0.Values(), size, communicator);
+        b = wrp_mpi::Dot(w_hat.Values(), r_hat_0.Values(), size, communicator);
 
         /*!
          * Odd Bi-CG step
          */
         //! (11) \f$ \rho[1] = <\hat{r}_0, s>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-        rho[1] = d - omega_1 * e - omega_2 * f - alpha * _b;
+        rho[1] = d - omega_1 * e - omega_2 * f - alpha * b;
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
 
@@ -349,8 +352,9 @@ void IBiCGSTAB2::solve(
         wrp_mpi::Update(w.Values(), t_hat.Values(), w_hat.Values(), 1., -beta, size);
 
         //! (13) \f$ w = A M^{-1} v \f$
-        precond.solve(Matrix, tmp, w, false);
-        Matrix.Multiply(false, tmp, x);
+//        precond.solve(Matrix, tmp, w, false);
+//        Matrix.Multiply(false, tmp, x);
+        Matrix.Multiply(false, w, x);
 
         // Case of left preconditioner
 //          //! (13) \f$ w = M^{-1} A v \f$
@@ -358,7 +362,7 @@ void IBiCGSTAB2::solve(
 //          precond.solve(Matrix, w, tmp, false);
 
         //! (14) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = a - beta * _b;
+        gamma = a - beta * b;
 
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
@@ -376,11 +380,12 @@ void IBiCGSTAB2::solve(
         wrp_mpi::Update(s.Values(), w.Values(), 1., -alpha, size);
 
         //! (15) \f$ t = t_hat - \alpha x \f$
-        wrp_mpi::Update(t.Values(), t_hat.Values(), -alpha, 1., size);
+        wrp_mpi::Update(t.Values(), t_hat.Values(), x.Values(), 1., -alpha, size);
 
         //! (18) \f$ t = A M^{-1} s\f$
-        precond.solve(Matrix, tmp, t, false);
-        Matrix.Multiply(false, tmp, u);
+//        precond.solve(Matrix, tmp, t, false);
+//        Matrix.Multiply(false, tmp, u);
+        Matrix.Multiply(false, t, u);
 
         // Case of left preconditioner
 //          //! (18) \f$ t = M^{-1} A s\f$
@@ -426,7 +431,7 @@ void IBiCGSTAB2::solve(
         //! (23) \f$ \omega_1 = (\omega_1 - \nu \omega_2) / \mu \f$
         omega_1 = (omega_1 - nu * omega_2) / mu;
 
-        //! (24) \f$ x = x + \omega_1 r + \omega_2 s + \alpha u \f$
+        //! (24) \f$ x = x + \omega_1 r + \omega_2 s + \alpha p \f$
         wrp_mpi::Update(x.Values(), r.Values(), s.Values(), p.Values(), 1.,
                 static_cast<double>(omega_1), static_cast<double>(omega_2), alpha, size);
 
@@ -480,8 +485,8 @@ void IBiCGSTAB2::solve(
     }
 
     time1 = MPI_Wtime();
-    precond.solve(Matrix, tmp, x, false);
-    wrp_mpi::Copy(x.Values(), tmp.Values(), size);
+//    precond.solve(Matrix, tmp, x, false);
+//    wrp_mpi::Copy(x.Values(), tmp.Values(), size);
 
     if ( ifprint && ((iter-1) % print_each) ) {
         if (myRank == 0)

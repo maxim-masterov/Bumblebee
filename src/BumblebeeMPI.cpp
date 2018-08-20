@@ -437,7 +437,7 @@ int main(int argc, char** argv) {
 //    solver.SetAztecOption(AZ_output, 1);
 //    solver.Iterate(50, 1.0E-8);
 
-    std::cout << "====== " << myMap->NumMyElements() << " " << myMap->NumGlobalElements() << "\n";
+//    std::cout << "====== " << myMap->NumMyElements() << " " << myMap->NumGlobalElements() << "\n";
 
 //    // Create AztecOO instance
 //    AztecOO solver(problem);
@@ -466,21 +466,36 @@ int main(int argc, char** argv) {
     slv_mpi::BiCGSTAB2 solver(comm.Comm());
     ML_Epetra::SetDefaults("DD",MLList);
 
-    MLList.set("ML output", 0);
-    MLList.set("max levels",5);
-    MLList.set("increasing or decreasing","increasing");
-    MLList.set("aggregation: type", "Uncoupled");
+//    MLList.set("ML output", 0);
+    MLList.set("max levels",7);
+//    MLList.set("increasing or decreasing","increasing");
+    MLList.set("aggregation: type", "Uncoupled-MIS");
     MLList.set("smoother: type","Chebyshev");
-    MLList.set("smoother: damping factor", 0.72);
+//    MLList.set("smoother: Chebyshev alpha", 0.9);
+//    MLList.set("smoother: damping factor", 0.7);
     MLList.set("smoother: sweeps",1);
     MLList.set("smoother: pre or post", "both");
-    MLList.set("coarse: type","Amesos-KLU");
-    MLList.set("eigen-analysis: type", "cg");
-    MLList.set("eigen-analysis: iterations", 7);
+//    MLList.set("coarse: type","Amesos-KLU");
+//    MLList.set("eigen-analysis: type", "cg");
+//    MLList.set("eigen-analysis: iterations", 15);
+//
+//    MLList.set("coarse: max size", 2000);
+//    MLList.set("aggregation: threshold", 1e-3);
 
     amg.SetParameters(MLList);
     time1 = time.WallTime();
     amg.Coarse(*A);
+//    int N_grids = 20;
+//    ML *ml_object;// = new ML;
+//    ML_Create(&ml_object, N_grids);
+//    ML_Init_Amatrix(ml_object, 0, nlocal, nlocal,(void *) A_data);
+//    ML_Set_Amatrix_Getrow(ml_object, 0, user_getrow, NULL, nlocal_allcolumns);
+//    ML_Set_Amatrix_Matvec(ml_object, 0, user_matvec);
+//    N_levels = ML_Gen_MGHierarchy_UsingAggregation(ml_object, 0, ML_INCREASING, NULL);
+//    ML_Gen_Smoother_Jacobi(ml_object, ML_ALL_LEVELS, ML_PRESMOOTHER, 1, ML_DEFAULT);
+//    ML_Gen_Solver(ml_object, ML_MGV, 0, N_levels-1);
+//    ML_Iterate(ml_object, sol, rhs);
+//    ML_Destroy(&ml_object);
     time2 = time.WallTime();
 
     MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, comm.Comm());
