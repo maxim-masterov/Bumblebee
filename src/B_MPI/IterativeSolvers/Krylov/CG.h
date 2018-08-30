@@ -178,7 +178,7 @@ void CG::solve(
             normalizer = sqrt(convergence_check);
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -214,25 +214,19 @@ void CG::solve(
         }
 
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
-//        Matrix.Multiply(false, d, tmp);
         wrp_mpi::Multiply(Matrix, d, tmp, false);
-        d.Dot(tmp, &temp);
-//        temp = wrp_mpi::Dot(d, tmp, size);
+        temp = wrp_mpi::Dot(d.Values(), tmp.Values(), size, communicator);
         alpha /= temp;			// Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
-        x.Update(alpha, d, 1.);
-//
-//        //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
-        r.Update(-alpha, tmp, 1.);
-//        wrp_mpi::Update2(
-//                x, d, 1., alpha,
-//                r, tmp, 1., -alpha,
-//                size);
+        //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
+        wrp_mpi::Update2(
+                x.Values(), d.Values(), 1., alpha,
+                r.Values(), tmp.Values(), 1., -alpha,
+                size);
 
         //! (5)   \f$ \beta = <r_{new}, r_{new}> / <r_{old}, r_{old}> \f$
-        r.Dot(r, &alpha);                       // Possible break down if alpha == 0.0
-//        alpha = wrp_mpi::Dot(r, r, size);       // Possible break down if alpha == 0.0
+        alpha = wrp_mpi::Dot(r.Values(), r.Values(), size, communicator);       // Possible break down if alpha == 0.0
         delta[0] = delta[1];
         delta[1] = alpha;
 
@@ -256,8 +250,7 @@ void CG::solve(
         beta = delta[1] / delta[0];
 
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
-        d.Update(1., r, beta);
-//        wrp_mpi::Update(d, r, beta, 1., size);
+        wrp_mpi::Update(d.Values(), r.Values(), beta, 1., size);
 
         /*
          * Check for convergence stalling
@@ -306,6 +299,7 @@ void CG::solve(
      */
     const int myRank = x.Comm().MyPID ();
     const Epetra_BlockMap _Map = x.Map();
+    int size = _Map.NumMyElements();
 
     /*
      * First check if preconditioner has been built. If not - through a warning
@@ -355,6 +349,7 @@ void CG::solve(
             break;
         case RBNORM:
             b.Norm2(&normalizer);
+//            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -394,6 +389,7 @@ void CG::solve(
         //! (2)	\f$ \alpha = <r, r> / <d, A d_{old}> \f$
         Matrix.Multiply(false, d, tmp);
         d.Dot(tmp, &temp);
+//        temp = wrp_mpi::Dot(d.Values(), tmp.Values(), size, communicator);
         alpha /= temp;		            // Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
@@ -407,6 +403,7 @@ void CG::solve(
 
         //! (5)	\f$ \delta_{new} = <r_{new}, r_{new}> \f$
         r.Dot(z, &alpha);               // Possible break down if alpha == 0.0
+//        alpha = wrp_mpi::Dot(r.Values(), z.Values(), size, communicator);
 
         //! (6)	\f$ \delta_{old} = <r_{old}, r_{old}> \f$
         delta[0] = delta[1];
@@ -417,7 +414,8 @@ void CG::solve(
             convergence_check = delta[1] / delta[0];
         else {
             r.Norm2(&convergence_check);
-            convergence_check /= normalizer;
+//            convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator);
+//            convergence_check /= normalizer;
         }
 
         /*!
