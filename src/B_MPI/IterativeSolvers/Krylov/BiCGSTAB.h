@@ -173,10 +173,10 @@ void BiCGSTAB::solve(
     VectorType tmp(x.getMap());
 
     //! (1) \f$ p_0 = r_0 = \hat{r}_0 = b - A * x_0 \f$
-    Matrix.apply(x0, v);
-    r = b;
-    r.update(-1., v, 1.);
-    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
+    wrp_mpi::Multiply(Matrix, x0, v, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -1., size);
+    wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! Set \f$ \alpha = \rho = 1 \f$
     alpha = rho = omega = 1.;
@@ -237,7 +237,7 @@ void BiCGSTAB::solve(
         rho = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
         if (fabs(rho) < threshold)  {   // If the residual vector r became too orthogonal to the
                                                 // arbitrarily chosen direction r_hat_0
-          r_hat_0 = r;                          // Restart with a new r0
+          wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);      // Restart with a new r0
           rho = r_0_norm = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
           threshold = eps*eps*r_0_norm;
         }
@@ -262,7 +262,7 @@ void BiCGSTAB::solve(
         }
 
         //! (4) \f$ \alpha = <\hat{r}_0, r> / <\hat{r}_0, A p> \f$
-        Matrix.apply(p, v);
+        wrp_mpi::Multiply(Matrix, p, v, false);
         temp = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), v.getDataNonConst().get(), size, communicator);
         alpha = rho / temp;
 
@@ -271,7 +271,7 @@ void BiCGSTAB::solve(
 
         //! (6) \f$ \omega = <t, s> / <t, t>  \f$, where \f$ t = A s \f$
         // (below t is replaced with r)
-        Matrix.apply(s, r);
+        wrp_mpi::Multiply(Matrix, s, r, false);
         temp = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
 
         /*
@@ -399,10 +399,10 @@ void BiCGSTAB::solve(
     VectorType p_hat(x.getMap());
 
     //! (1) \f$ p_0 = r_0 = b - A x_0 \f$
-    Matrix.apply(x0, v);
-    r = b;
-    r.update(-1., v, 1.);
-    r_hat_0 = r;                                // Actually r_hat_0 is an arbitrary vector
+    wrp_mpi::Multiply(Matrix, x0, v, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -1., size);
+    wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! Set \f$ \alpha = \rho = 1 \f$
     rho = omega = 1.;
@@ -462,7 +462,6 @@ void BiCGSTAB::solve(
         if (fabs(rho) < (eps*eps*r_0_norm)) {       // If the residual vector r became too orthogonal to the
                                                     // arbitrarily chosen direction r_hat_0
             wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Restart with a new r0
-//            r_hat_0 = r;
             rho = r_0_norm = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
         }
 
@@ -480,7 +479,7 @@ void BiCGSTAB::solve(
         precond.solve(Matrix, p_hat, p, false);
 
         //! (5) \f$ \alpha = <\hat{r}_0, r> / <\hat{r}_0, A \hat{p}> \f$
-        Matrix.apply(p_hat, v);
+        wrp_mpi::Multiply(Matrix, p_hat, v, false);
 
         temp = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), v.getDataNonConst().get(), size, communicator);
         alpha = rho / temp;
@@ -495,7 +494,7 @@ void BiCGSTAB::solve(
 
         //! (8) \f$ \omega = <t, s> / <t, t> \f$, where \f$ t = A \hat{s} \f$
         // (below t = r)
-        Matrix.apply(s_hat, r);
+        wrp_mpi::Multiply(Matrix, s_hat, r, false);
         temp = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
 
         // Check for breakdown

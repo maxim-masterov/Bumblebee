@@ -157,10 +157,9 @@ void CG::solve(
 
     //! (1)  \f$ d_0 = r_0 = b - A x_0 \f$
     wrp_mpi::Multiply(Matrix, x0, tmp, false);
-    r = b;
-//    r.update(-1., tmp, 1.);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
     wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
-    d = r;
+    wrp_mpi::Copy(d.getDataNonConst().get(), r.getDataNonConst().get(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
     convergence_check = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
@@ -249,8 +248,6 @@ void CG::solve(
 
         beta = delta[1] / delta[0];
 
-        std::cout << convergence_check << " " << alpha << " " << beta << " " << delta[0] << " " << delta[1] << "\n";
-
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
         wrp_mpi::Update(d.getDataNonConst().get(), r.getDataNonConst().get(), beta, 1., size);
 
@@ -323,18 +320,16 @@ void CG::solve(
     VectorType tmp(x.getMap());
 
     //! (1) \f$ r_0 = b - A x_0 \f$
-    Matrix.apply(x0, tmp);
-    r = b;
-    r.update(-1., tmp, 1.);
-    d = r;
+    wrp_mpi::Multiply(Matrix, x0, tmp, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
 
     //! Apply preconditioner \f$ M z = r_0 \f$
     precond.solve(Matrix, z, r, false);
     //! Set d_0 = z_0
-    d = z;
+    wrp_mpi::Copy(d.getDataNonConst().get(), z.getDataNonConst().get(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-//    r.Dot(r, &convergence_check);
     convergence_check = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
     delta[1] = alpha = convergence_check;
 
@@ -388,23 +383,21 @@ void CG::solve(
         }
 
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
-        Matrix.apply(d, tmp);
-//        d.Dot(tmp, &temp);
+        wrp_mpi::Multiply(Matrix, d, tmp, false);
         temp = wrp_mpi::Dot(d.getDataNonConst().get(), tmp.getDataNonConst().get(), size, communicator);
         alpha /= temp;                  // Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
-        x.update(alpha, d, 1.);
+        wrp_mpi::Update(x.getDataNonConst().get(), d.getDataNonConst().get(), 1., alpha, size);
 
         //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
-        r.update(-alpha, tmp, 1.);
+        wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -alpha, size);
 
         //! Apply preconditioner \f$ M z = r_{new} \f$
         precond.solve(Matrix, z, r, false);
 
         //! (5) \f$ \delta_{new} = <r_{new}, r_{new}> \f$
-//        r.Dot(z, &alpha);               // Possible break down if alpha == 0.0
-        alpha = wrp_mpi::Dot(r.getDataNonConst().get(), z.getDataNonConst().get(), size, communicator);
+        alpha = wrp_mpi::Dot(r.getDataNonConst().get(), z.getDataNonConst().get(), size, communicator);     // Possible break down if alpha == 0.0
 
         //! (6) \f$ \delta_{old} = <r_{old}, r_{old}> \f$
         delta[0] = delta[1];
@@ -414,7 +407,6 @@ void CG::solve(
         if (stop_criteria == INTERN)
             convergence_check = delta[1] / delta[0];
         else {
-//            r.Norm2(&convergence_check);
             convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
             convergence_check /= normalizer;
         }
@@ -435,7 +427,7 @@ void CG::solve(
         beta = delta[1] / delta[0];
 
         //! (8) \f$ d_{new} = r_{new} + \beta d_{old} \f$
-        d.update(1., z, beta);
+        wrp_mpi::Update(d.getDataNonConst().get(), z.getDataNonConst().get(), beta, 1., size);
 
         /*
          * Check for convergence stalling

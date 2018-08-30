@@ -170,16 +170,17 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
     VectorType tmp(x.getMap());
 
     //! (1)	\f$ p_0 = r_0 = b - A x_0 \f$
-    Matrix.apply(x0, tmp, Teuchos::NO_TRANS);
-    r = b;
-    r.update(-1., tmp, 1.);
+    wrp_mpi::Multiply(Matrix, x0, tmp, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
 
     //! (1')	\f$ \hat{p}_0 = \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.apply(x0, tmp, Teuchos::TRANS);
-    r_hat = b;
-    r_hat.update(-1., tmp, 1.);
+    wrp_mpi::Multiply(Matrix, x0, tmp, true);
+    wrp_mpi::Copy(r_hat.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r_hat.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
 
-    p = r; p_hat = r_hat;
+    wrp_mpi::Copy(p.getDataNonConst().get(), r.getDataNonConst().get(), size);
+    wrp_mpi::Copy(p_hat.getDataNonConst().get(), r_hat.getDataNonConst().get(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
 //    r_hat.Dot(r, &convergence_check);
@@ -376,14 +377,14 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
     VectorType tmp(x.getMap());
 
     //! (1)	\f$ r_0 = b - A x_0 \f$
-    Matrix.apply(x0, tmp, Teuchos::NO_TRANS);
-    r = b;
-    r.update(-1., tmp, 1.);
+    wrp_mpi::Multiply(Matrix, x0, tmp, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
 
     //! (2)	\f$ \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.apply(x0, tmp, Teuchos::TRANS);
-    r_hat = b;
-    r_hat.update(-1., tmp, 1.);
+    wrp_mpi::Multiply(Matrix, x0, tmp, true);
+    wrp_mpi::Copy(r_hat.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r_hat.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
 
 //    r_hat.Dot(r, &convergence_check);
     convergence_check = wrp_mpi::Dot(r_hat.getDataNonConst().get(), r_hat.getDataNonConst().get(), size, communicator);
@@ -441,7 +442,7 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         /*!
          *  (3) Apply preconditioners \f$ M z = r \f$, \f$ M^T \hat{z} = \hat{r} \f$
          */
-        precond.solve(Matrix, z, r, true);
+        precond.solve(Matrix, z, r, false);
         precond.solve(Matrix, z_hat, r_hat, true);
 
 //        z.Dot(r_hat, &alpha);
@@ -474,8 +475,8 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         else {
             delta[1] = alpha;
             delta_0 = delta[1];
-            p = z;
-            p_hat = z_hat;
+            wrp_mpi::Copy(p.getDataNonConst().get(), z.getDataNonConst().get(), size);
+            wrp_mpi::Copy(p_hat.getDataNonConst().get(), z_hat.getDataNonConst().get(), size);
         }
 
         //! (7)	\f$ \alpha = <z, \hat{r}> / <\hat{p}, A p> \f$

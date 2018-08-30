@@ -176,10 +176,10 @@ void BiCGSTAB2::solve(
     VectorType t(x.getMap());
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-    Matrix.apply(x0, v);
-    r = b;
-    r.update(-1., v, 1.);
-    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
+    wrp_mpi::Multiply(Matrix, x0, v, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -1., size);
+    wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ \alpha = \rho[0] = \omega_2 = 1\f$
     wrp_mpi::Zero(u.getDataNonConst().get(), size);
@@ -259,7 +259,7 @@ void BiCGSTAB2::solve(
         wrp_mpi::Update(u.getDataNonConst().get(), r.getDataNonConst().get(), -beta, 1., size);
 
         //! (5) \f$ v = A u \f$
-        Matrix.apply(u, v);
+        wrp_mpi::Multiply(Matrix, u, v, false);
 
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
         gamma = wrp_mpi::Dot(v.getDataNonConst().get(), r_hat_0.getDataNonConst().get(), size, communicator);
@@ -277,7 +277,7 @@ void BiCGSTAB2::solve(
         wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -alpha, size);
 
         //! (8) \f$ s = A r \f$
-        Matrix.apply(r, s);
+        wrp_mpi::Multiply(Matrix, r, s, false);
 
         //! (9) \f$ x = x + \alpha u \f$
         wrp_mpi::Update(x.getDataNonConst().get(), u.getDataNonConst().get(), 1., alpha, size);
@@ -295,7 +295,7 @@ void BiCGSTAB2::solve(
 //          wrp_mpi::Update2(x, u, 1., alpha, v, s, -beta, 1., size);
 
         //! (12) \f$ w = A v \f$
-        Matrix.apply(v, w);
+        wrp_mpi::Multiply(Matrix, v, w, false);
 
         //! (13) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
         gamma = wrp_mpi::Dot(w.getDataNonConst().get(), r_hat_0.getDataNonConst().get(), size, communicator);
@@ -319,7 +319,7 @@ void BiCGSTAB2::solve(
         wrp_mpi::Update(s.getDataNonConst().get(), w.getDataNonConst().get(), 1., -alpha, size);
 
         //! (17) \f$ t = A s\f$
-        Matrix.apply(s, t);
+        wrp_mpi::Multiply(Matrix, s, t, false);
 
         /*!
          * GCR(2)-part
@@ -477,12 +477,12 @@ void BiCGSTAB2::solve(
 
     // Right preconditioner
     precond.solve(Matrix, tmp, x0, false);
-    x0 = tmp;
+    wrp_mpi::Copy(x0.getDataNonConst().get(), tmp.getDataNonConst().get(), size);
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-    Matrix.apply(x0, v);
-    r = b;
-    r.update(-1., v, 1.);
+    wrp_mpi::Multiply(Matrix, x0, v, false);
+    wrp_mpi::Copy(r.getDataNonConst().get(), b.getDataNonConst().get(), size);
+    wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -1., size);
     wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ w = 0 \f$, \f$ v = 0 \f$, \f$ \alpha = \rho[0] = \omega_1 = \omega_2 = 1\f$
@@ -581,7 +581,7 @@ void BiCGSTAB2::solve(
 
         //! (6) \f$ v = A M^{-1} u \f$
         precond.solve(Matrix, tmp, u, false);
-        Matrix.apply(tmp, v);
+        wrp_mpi::Multiply(Matrix, tmp, v, false);
 
         // Case of left preconditioner
 //          //! (6) \f$ v = M^{-1} A u \f$
@@ -605,7 +605,7 @@ void BiCGSTAB2::solve(
 
         //! (9) \f$ s = A M^{-1} r \f$
         precond.solve(Matrix, tmp, r, false);
-        Matrix.apply(tmp, s);
+        wrp_mpi::Multiply(Matrix, tmp, s, false);
 
         // Case of left preconditioner
 //          //! (9) \f$ s = M^{-1} A r \f$
@@ -628,7 +628,7 @@ void BiCGSTAB2::solve(
 
         //! (13) \f$ w = A M^{-1} v \f$
         precond.solve(Matrix, tmp, v, false);
-        Matrix.apply(tmp, w);
+        wrp_mpi::Multiply(Matrix, tmp, w, false);
 
         // Case of left preconditioner
 //          //! (13) \f$ w = M^{-1} A v \f$
@@ -658,7 +658,7 @@ void BiCGSTAB2::solve(
 
         //! (18) \f$ t = A M^{-1} s\f$
         precond.solve(Matrix, tmp, s, false);
-        Matrix.apply(tmp, t);
+        wrp_mpi::Multiply(Matrix, tmp, t, false);
 
         // Case of left preconditioner
 //          //! (18) \f$ t = M^{-1} A s\f$

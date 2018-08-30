@@ -443,8 +443,8 @@ int main(int argc, char** argv) {
         solver.PrintHistory(true, 1);
 
         time1 = MPI_Wtime();
-//        solver.solve(amg, *A, x, b, x);
-        solver.solve(*A, x, b, x);
+        solver.solve(amg, *A, x, b, x);
+//        solver.solve(*A, x, b, x);
         time2 = MPI_Wtime();
 
         amg.Destroy();
