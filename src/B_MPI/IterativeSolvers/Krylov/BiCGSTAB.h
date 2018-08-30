@@ -161,30 +161,26 @@ void BiCGSTAB::solve(
     /*
      * MPI communicators
      */
-    const int myRank = x.Comm().MyPID ();
-    const Epetra_BlockMap _Map = x.Map();
-    int size = _Map.NumMyElements();        // local system size
+    const int myRank = x.getMap()->getComm()->getRank();
+    int size = x.getMap()->getNodeNumElements();    // local system size
 
-    VectorType r(_Map);
-    VectorType r_hat_0(_Map);
-    VectorType p(_Map);
-    VectorType s(_Map);
-    VectorType v(_Map);
+    VectorType r(x.getMap());
+    VectorType r_hat_0(x.getMap());
+    VectorType p(x.getMap());
+    VectorType s(x.getMap());
+    VectorType v(x.getMap());
 
-    VectorType tmp(_Map);
+    VectorType tmp(x.getMap());
 
     //! (1) \f$ p_0 = r_0 = \hat{r}_0 = b - A * x_0 \f$
-//    r = b - Matrix * x0;
-//    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
-    Matrix.Multiply(false, x0, v);
+    Matrix.apply(x0, v);
     r = b;
-    r.Update(-1., v, 1.);
+    r.update(-1., v, 1.);
     r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
 
     //! Set \f$ \alpha = \rho = 1 \f$
     alpha = rho = omega = 1.;
-//    r_0_norm = wrp_mpi::Norm2(r_hat_0, size);
-    r_hat_0.Norm2(&r_0_norm);
+    r_0_norm = wrp_mpi::Norm2(r_hat_0.getDataNonConst().get(), size, communicator);
     threshold = eps * eps * r_0_norm;
 
     /*!
@@ -198,8 +194,7 @@ void BiCGSTAB::solve(
             normalizer = r_0_norm;
             break;
         case RBNORM:
-//            normalizer = wrp_mpi::Norm2(b, size);
-            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get(), size, communicator);
             break;
         case RWNORM:
             normalizer =  weight;
@@ -239,14 +234,11 @@ void BiCGSTAB::solve(
         rho_old = rho;
 
         //! (2) \f$ \beta = <\hat{r}_0, r_{new}> / <\hat{r}_0, r_{old}> \f$
-//        rho = wrp_mpi::Dot(r_hat_0, r, size);
-        r_hat_0.Dot(r, &rho);
+        rho = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
         if (fabs(rho) < threshold)  {   // If the residual vector r became too orthogonal to the
                                                 // arbitrarily chosen direction r_hat_0
           r_hat_0 = r;                          // Restart with a new r0
-//          rho = r_0_norm = wrp_mpi::Norm2(r, size);
-          r.Norm2(&r_0_norm);
-          rho = r_0_norm;
+          rho = r_0_norm = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
           threshold = eps*eps*r_0_norm;
         }
 
@@ -263,33 +255,24 @@ void BiCGSTAB::solve(
              * then it is scaled by beta. In the second statement
              * scaling by beta applied separately to two vectors.
              */
-//            wrp_mpi::Update(p, r, v, beta, 1., -omega*beta, size);
-            beta = (rho/rho_old) * (alpha / omega);
-            temp = - beta * omega;
-            p.Update(1., r, temp, v, beta);
+            wrp_mpi::Update(p.getDataNonConst().get(), r.getDataNonConst().get(), v.getDataNonConst().get(), beta, 1., -omega*beta, size);
         }
         else {
-//            wrp_mpi::Copy(p, r, size);
-            p = r;
+            wrp_mpi::Copy(p.getDataNonConst().get(), r.getDataNonConst().get(), size);
         }
 
         //! (4) \f$ \alpha = <\hat{r}_0, r> / <\hat{r}_0, A p> \f$
-//        wrp_mpi::Multiply(Matrix, p, v);
-        Matrix.Multiply(false, p, v);
-//        temp = wrp_mpi::Dot(r_hat_0, v, size);
-        r_hat_0.Dot(v, &temp);
+        Matrix.apply(p, v);
+        temp = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), v.getDataNonConst().get(), size, communicator);
         alpha = rho / temp;
 
         //! (5) \f$  s = r_{old} - \alpha A p \f$
-//        wrp_mpi::Update(s, r, v, 1., -alpha, size);
-        s.Update(1., r, -alpha, v, 0.);
+        wrp_mpi::Update(s.getDataNonConst().get(), r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -alpha, size);
 
         //! (6) \f$ \omega = <t, s> / <t, t>  \f$, where \f$ t = A s \f$
         // (below t is replaced with r)
-//        wrp_mpi::Multiply(Matrix, s, r);
-        Matrix.Multiply(false, s, r);
-//        temp = wrp_mpi::Dot(r, r, size);
-        r.Dot(r, &temp);
+        Matrix.apply(s, r);
+        temp = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
 
         /*
          * TODO: checking for the breakdown below can be done right after 5th step (s=...) as follows
@@ -303,19 +286,13 @@ void BiCGSTAB::solve(
         // Check for breakdown
         if (temp != 0.0) {
             if (!use_add_stab) {                                        // If additional stabilization was not specified
-//                omega = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-                r.Dot(s, &omega);
+                omega = wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
                 omega /= temp;
             }
             else {                                                      // Otherwise use limiter (for the reference see doxygen of
-//                double s_n = wrp_mpi::Norm2(s.Values(), size, communicator);                       // Base::SetAdditionalStabilizaation())
-                double s_n = 0;
-                s.Norm2(&s_n);
+                double s_n = wrp_mpi::Norm2(s.getDataNonConst().get(), size, communicator);                       // Base::SetAdditionalStabilizaation())
                 double r_n = sqrt(temp);
-//                double c = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-                double c = 0;
-                r.Dot(s, &c);
-                c /= s_n * r_n;
+                double c = wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
 
                 if ( !std::signbit(c) )
                     omega = std::max(fabs(c), stab_criteria) * s_n / r_n;
@@ -324,25 +301,19 @@ void BiCGSTAB::solve(
             }
         }
         else {
-//              x += alpha * p;
-            wrp_mpi::Update(x.Values(), p.Values(), 1., alpha, size);
+            wrp_mpi::Update(x.getDataNonConst().get(), p.getDataNonConst().get(), 1., alpha, size);
             if (myRank == 0)
                 std::cout << "BiCGSTAB has been interrupted..." << std::endl;
             break;
         }
 
         //! (7) \f$ x_{new} = x_{old} + \alpha p + \omega s  \f$
-//          x += alpha * p + omega * s;
-//        wrp_mpi::Update(x, p, s, 1., alpha, omega, size);
-        x.Update(alpha, p, omega, s, 1.);
+        wrp_mpi::Update(x.getDataNonConst().get(), p.getDataNonConst().get(), s.getDataNonConst().get(), 1., alpha, omega, size);
 
         //! (8) \f$ r_{new} = s - \omega A t  \f$
-//        wrp_mpi::Update(r, s, -omega, 1., size);
-        r.Update(1., s, -omega, r, 0.);
+        wrp_mpi::Update(r.getDataNonConst().get(), s.getDataNonConst().get(), -omega, 1., size);
 
-//        convergence_check = wrp_mpi::Norm2(r, size) / normalizer;
-        r.Norm2(&convergence_check);
-        convergence_check /= normalizer;
+        convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator) / normalizer;
 
         /*!
          * Check convergence
@@ -403,9 +374,8 @@ void BiCGSTAB::solve(
     double normalizer = 1.;                 // residual normalizer
      double r_0_norm = 0.;              // used to calculate norm of vector r_0
 
-    const int myRank = x.Comm().MyPID ();
-    const Epetra_BlockMap _Map = x.Map();
-    int size = _Map.NumMyElements();        // local system size
+     const int myRank = x.getMap()->getComm()->getRank();
+     int size = x.getMap()->getNodeNumElements();    // local system size
 
     /*
      * First check if preconditioner has been built. If not - through a warning
@@ -419,27 +389,25 @@ void BiCGSTAB::solve(
         return;
     }
 
-    VectorType r(_Map);
-    VectorType r_hat_0(_Map);
-    VectorType p(_Map);
-    VectorType s(_Map);
-    VectorType v(_Map);
+    VectorType r(x.getMap());
+    VectorType r_hat_0(x.getMap());
+    VectorType p(x.getMap());
+    VectorType s(x.getMap());
+    VectorType v(x.getMap());
 
-    VectorType s_hat(_Map);
-    VectorType p_hat(_Map);
+    VectorType s_hat(x.getMap());
+    VectorType p_hat(x.getMap());
 
     //! (1) \f$ p_0 = r_0 = b - A x_0 \f$
-//    r = b - Matrix * x0;
-    Matrix.Multiply(false, x0, v);
+    Matrix.apply(x0, v);
     r = b;
-    r.Update(-1., v, 1.);
+    r.update(-1., v, 1.);
     r_hat_0 = r;                                // Actually r_hat_0 is an arbitrary vector
 
     //! Set \f$ \alpha = \rho = 1 \f$
     rho = omega = 1.;
     alpha = 0.;
-//    r_0_norm = wrp_mpi::Norm2(r_hat_0, size);//r_hat_0.norm();
-    r_hat_0.Norm2(&r_0_norm);
+    r_0_norm = wrp_mpi::Norm2(r_hat_0.getDataNonConst().get(), size, communicator);
 
     /*!
      * Prepare stop criteria
@@ -452,8 +420,7 @@ void BiCGSTAB::solve(
             normalizer = r_0_norm;
             break;
         case RBNORM:
-//            normalizer = b.norm();
-            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get(), size, communicator);
             break;
         case RWNORM:
             normalizer =  weight;
@@ -491,24 +458,21 @@ void BiCGSTAB::solve(
         rho_old = rho;
 
         //! (2) \f$ \beta = <\hat{r}_0, r_{new}> / <\hat{r}_0, r_{old}> \f$
-//        rho = wrp_mpi::Dot(r_hat_0.Values(), r.Values(), size, communicator);
-        r_hat_0.Dot(r, &rho);
+        rho = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
         if (fabs(rho) < (eps*eps*r_0_norm)) {       // If the residual vector r became too orthogonal to the
                                                     // arbitrarily chosen direction r_hat_0
-//            wrp_mpi::Copy(r_hat_0, r, size);            // Restart with a new r0
-            r_hat_0 = r;
-            rho = r_0_norm = wrp_mpi::Norm2(r.Values(), size, communicator);
+            wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Restart with a new r0
+//            r_hat_0 = r;
+            rho = r_0_norm = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
         }
 
         if (k == 1) {
-//              p = r;
-//            wrp_mpi::Copy(p, r, size);
-            p = r;
+            wrp_mpi::Copy(p.getDataNonConst().get(), r.getDataNonConst().get(), size);
         }
         else {
             //! (3) \f$ d_{new} = r_{new} + \beta * d_{old} \f$
             beta = static_cast<double>( (rho/rho_old) * (alpha / omega) );
-            wrp_mpi::Update(p.Values(), r.Values(), v.Values(), beta, 1.,
+            wrp_mpi::Update(p.getDataNonConst().get(), r.getDataNonConst().get(), v.getDataNonConst().get(), beta, 1.,
                     static_cast<double>(-omega) * beta, size);
         }
 
@@ -516,41 +480,34 @@ void BiCGSTAB::solve(
         precond.solve(Matrix, p_hat, p, false);
 
         //! (5) \f$ \alpha = <\hat{r}_0, r> / <\hat{r}_0, A \hat{p}> \f$
-//        wrp_mpi::Multiply(Matrix, p_hat, v);
-        Matrix.Multiply(false, p_hat, v);
+        Matrix.apply(p_hat, v);
 
-//        temp = wrp_mpi::Dot(r_hat_0.Values(), v.Values(), size, communicator);
-        r_hat_0.Dot(v, &temp);
+        temp = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), v.getDataNonConst().get(), size, communicator);
         alpha = rho / temp;
 
         //! (6) \f$ s = r_{old} - \alpha A \hat{p} \f$
         // Actually after this step one can check L2-norm of s and stop if it is too small, since
         // anyway in such case omega will be NaN and algorithm will be terminated
-        wrp_mpi::Update(s.Values(), r.Values(), v.Values(), 1., static_cast<double>(-alpha), size);
+        wrp_mpi::Update(s.getDataNonConst().get(), r.getDataNonConst().get(), v.getDataNonConst().get(), 1., static_cast<double>(-alpha), size);
 
         //! (7) Apply preconditioner. Solve \f$ M \hat{s} = s \f$
         precond.solve(Matrix, s_hat, s, false);
 
         //! (8) \f$ \omega = <t, s> / <t, t> \f$, where \f$ t = A \hat{s} \f$
         // (below t = r)
-//        wrp_mpi::Multiply(Matrix, s_hat, r);
-        Matrix.Multiply(false, s_hat, r);
-//        temp = wrp_mpi::Dot(r, r, size);
-        r.Dot(r, &temp);
+        Matrix.apply(s_hat, r);
+        temp = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
 
         // Check for breakdown
         if (temp != 0.0) {
             if (!use_add_stab) {                                        // If additional stabilization was not specified
-//                omega = wrp_mpi::Dot(r.Values(), s.Values(), size, communicator);
-                r.Dot(s, &omega);
+                omega = wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
                 omega /= temp;
             }
             else {                                                                                  // Otherwise use limiter (for the reference see doxygen of
-                double s_n = wrp_mpi::Norm2(s.Values(), size, communicator);                        // Base::SetAdditionalStabilizaation())
+                double s_n = wrp_mpi::Norm2(s.getDataNonConst().get(), size, communicator);                        // Base::SetAdditionalStabilizaation())
                 double r_n = sqrt(temp);
-//                double c = static_cast<double>(wrp_mpi::Dot(r.Values(), s.Values(), size, communicator));
-                double c = 0;
-                r.Dot(s, &c);
+                double c = static_cast<double>(wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator));
                 c /= (s_n * r_n);
 
                 if ( !std::signbit(c) )
@@ -561,26 +518,23 @@ void BiCGSTAB::solve(
         }
         else {
             // (8*) Update solution and stop
-            wrp_mpi::Update(x.Values(), p_hat.Values(), 1., static_cast<double>(alpha), size);
+            wrp_mpi::Update(x.getDataNonConst().get(), p_hat.getDataNonConst().get(), 1., static_cast<double>(alpha), size);
             if (myRank == 0)
                 std::cout << "BiCGSTAB has been interrupted..." << std::endl;
             break;
         }
 
         //! (9) \f$ x_{new} = x_{old} + \alpha \hat{p} + \omega \hat{s} \f$
-        wrp_mpi::Update(x.Values(), p_hat.Values(), s_hat.Values(), 1., static_cast<double>(alpha),
+        wrp_mpi::Update(x.getDataNonConst().get(), p_hat.getDataNonConst().get(), s_hat.getDataNonConst().get(), 1., static_cast<double>(alpha),
                 static_cast<double>(omega), size);
 
         //! (10)    \f$ r_{new} = s - \omega A t \f$
-//        wrp_mpi::Update(r, s, static_cast<double>(-omega), 1., size);
-        r.Update(1., s, -omega, r, 0.);
+        wrp_mpi::Update(r.getDataNonConst().get(), s.getDataNonConst().get(), static_cast<double>(-omega), 1., size);
 
         /*!
          * Check convergence
          */
-//        convergence_check = wrp_mpi::Norm2(r, size) / normalizer;
-        r.Norm2(&convergence_check);
-        convergence_check /= normalizer;
+        convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator) / normalizer;
 
         if ( ifprint && !(k % print_each) ) {
             if (myRank == 0)

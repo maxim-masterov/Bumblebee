@@ -8,15 +8,22 @@
 #ifndef AMG_AMG_H_
 #define AMG_AMG_H_
 
-#include "ml_include.h"
-#include "ml_MultiLevelPreconditioner.h"
-#include "ml_epetra_utils.h"
+//#include "ml_include.h"
+//#include "ml_MultiLevelPreconditioner.h"
+//#include "ml_epetra_utils.h"
+
+#include <Tpetra_CrsMatrix.hpp>
+#include <Tpetra_Vector.hpp>
+#include <MueLu.hpp>
+#include <MueLu_TpetraOperator.hpp>
+#include <MueLu_CreateTpetraPreconditioner.hpp>
+#include <MueLu_Utilities.hpp>
 
 namespace slv_mpi {
 
 class AMG {
 public:
-    AMG() : MLPrec(nullptr), is_built(false) { }
+    AMG() : is_built(false) { }
     ~AMG() {
         CleanMemory();
     }
@@ -28,15 +35,16 @@ public:
      * \brief Sets parameters
      */
     inline void SetParameters(Teuchos::ParameterList &_list) {
-        MLList = _list;
+        mueluParams = _list;
     }
 
     /*!
      * \brief Setup for AMG solver
      */
-    inline void Coarse(Epetra_CrsMatrix  &Matrix) {
+    template <typename Scalar, typename LocalOrdinal, typename GlobalOrdinal, typename Node>
+    inline void Coarse(const Teuchos::RCP<Tpetra::Operator<Scalar, LocalOrdinal, GlobalOrdinal, Node> > &Matrix) {
         CleanMemory();
-        MLPrec = new ML_Epetra::MultiLevelPreconditioner(Matrix, MLList);
+        M = MueLu::CreateTpetraPreconditioner(Matrix, mueluParams);
         is_built = true;
     }
 
@@ -44,17 +52,17 @@ public:
      * \brief Calls for internal test function (see Trilinos documentation)
      */
     inline void Test() {
-        if (MLPrec != nullptr)
-            MLPrec->TestSmoothers();
+//        if (M != nullptr)
+//            M->TestSmoothers();
     }
 
     /*!
      * \brief Calls for a preconditioner
      */
-    inline void solve(Epetra_CrsMatrix  &Matrix,
-               Epetra_Vector    &x,
-               Epetra_Vector    &b,
-               bool        IsStandAlone = false) {
+    inline void solve(Tpetra::CrsMatrix<> &Matrix,
+                     Tpetra::Vector<> &x,
+                     Tpetra::Vector<> &b,
+                     bool IsStandAlone = false) {
 
         /*
          * Check if coarsening procedure has been called
@@ -64,7 +72,7 @@ public:
             return;
         }
 
-        MLPrec->ApplyInverse(b, x);
+        M->apply(b, x);
     }
 
     inline bool IsBuilt() {
@@ -73,16 +81,16 @@ public:
 
 private:
     void CleanMemory() {
-        if (MLPrec != nullptr) {
-            delete MLPrec;
-            MLPrec = nullptr;
-            is_built = false;
-        }
+//        if (MLPrec != nullptr) {
+//            delete MLPrec;
+//            MLPrec = nullptr;
+//            is_built = false;
+//        }
     }
 
 private:
-    ML_Epetra::MultiLevelPreconditioner *MLPrec;
-    Teuchos::ParameterList MLList;
+    Teuchos::RCP<MueLu::TpetraOperator<>> M;
+    Teuchos::ParameterList mueluParams;
     bool is_built;
 };
 }

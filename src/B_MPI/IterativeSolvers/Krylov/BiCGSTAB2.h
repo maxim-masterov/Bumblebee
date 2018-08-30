@@ -176,10 +176,8 @@ void BiCGSTAB2::solve(
     VectorType t(x.getMap());
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-//    Matrix.Multiply(false, x0, v);
     Matrix.apply(x0, v);
     r = b;
-//    r.Update(-1., v, 1.);
     r.update(-1., v, 1.);
     r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
 
@@ -248,7 +246,6 @@ void BiCGSTAB2::solve(
          * Even Bi-CG step
          */
         //! (3) \f$ \rho[1] = <\hat{r}_0, r>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-//          rho[1] = r_hat_0.dot(r);
         rho[1] = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
@@ -259,16 +256,12 @@ void BiCGSTAB2::solve(
         }
 
         //! (4) \f$ u = r - \beta u \f$
-//          u = r - beta * u;
         wrp_mpi::Update(u.getDataNonConst().get(), r.getDataNonConst().get(), -beta, 1., size);
 
         //! (5) \f$ v = A u \f$
-//          v.noalias() = Matrix * u;
-//        Matrix.Multiply(false, u, v);
         Matrix.apply(u, v);
 
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-//          gamma = v.dot(r_hat_0);
         gamma = wrp_mpi::Dot(v.getDataNonConst().get(), r_hat_0.getDataNonConst().get(), size, communicator);
 
         // Check for breakdown (probably may occur)
@@ -281,38 +274,30 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (7) \f$ r = r - \alpha v \f$
-//          r -= alpha * v;
         wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -alpha, size);
 
         //! (8) \f$ s = A r \f$
-//          s.noalias()  = Matrix * r;
-//        Matrix.Multiply(false, r, s);
         Matrix.apply(r, s);
 
         //! (9) \f$ x = x + \alpha u \f$
-//          x += alpha * u;
         wrp_mpi::Update(x.getDataNonConst().get(), u.getDataNonConst().get(), 1., alpha, size);
+
         /*!
          * Odd Bi-CG step
          */
         //! (10) \f$ \rho[1] = <\hat{r}_0, s>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-//          rho[1] = r_hat_0.dot(s);
         rho[1] = wrp_mpi::Dot(r_hat_0.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
 
         //! (11) \f$ v = s - \beta v \f$
-//          v = s - beta * v;
         wrp_mpi::Update(v.getDataNonConst().get(), s.getDataNonConst().get(), -beta, 1., size);
 //          wrp_mpi::Update2(x, u, 1., alpha, v, s, -beta, 1., size);
 
         //! (12) \f$ w = A v \f$
-//          w.noalias() = Matrix * v;
-//        Matrix.Multiply(false, v, w);
         Matrix.apply(v, w);
 
         //! (13) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-//          gamma = w.dot(r_hat_0);
         gamma = wrp_mpi::Dot(w.getDataNonConst().get(), r_hat_0.getDataNonConst().get(), size, communicator);
 
         // Check for breakdown (may occur if matrix is diagonal)
@@ -325,21 +310,15 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (14) \f$ u = r - \beta u \f$
-//          u = r - beta * u;
         wrp_mpi::Update(u.getDataNonConst().get(), r.getDataNonConst().get(), -beta, 1., size);
 
         //! (15) \f$ r = r - \alpha v \f$
-//          r -= alpha * v;
         wrp_mpi::Update(r.getDataNonConst().get(), v.getDataNonConst().get(), 1., -alpha, size);
 
         //! (16) \f$ s = s - \alpha w\f$
-//          s -= alpha * w;
         wrp_mpi::Update(s.getDataNonConst().get(), w.getDataNonConst().get(), 1., -alpha, size);
-//          wrp_mpi::Update2(r, v, 1., -alpha, s, w, 1., -alpha, size);
 
         //! (17) \f$ t = A s\f$
-//          t.noalias() = Matrix * s;
-//        Matrix.Multiply(false, s, t);
         Matrix.apply(s, t);
 
         /*!
@@ -347,18 +326,11 @@ void BiCGSTAB2::solve(
          */
         //! (18) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (19) \f$ \omega_2 = <r, t> \f$
-//        omega_1 = wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
-//        mu = wrp_mpi::Dot(s.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
-//        nu = wrp_mpi::Dot(s.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-//        tau = wrp_mpi::Dot(t.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-//        omega_2 = wrp_mpi::Dot(r.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-
         reduced_g[0] = wrp_mpi::DotLocal(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
         reduced_g[1] = wrp_mpi::DotLocal(s.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
         reduced_g[2] = wrp_mpi::DotLocal(s.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
         reduced_g[3] = wrp_mpi::DotLocal(t.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
         reduced_g[4] = wrp_mpi::DotLocal(r.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-
         MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
 
         omega_1 = reduced_l[0];
@@ -389,19 +361,16 @@ void BiCGSTAB2::solve(
         omega_1 = (omega_1 - nu * omega_2) / mu;
 
         //! (23) \f$ x = x + \omega_1 r + \omega_2 s + \alpha u \f$
-//          x = x + omega_1 * r + omega_2 * s + alpha * u;
         wrp_mpi::Update(x.getDataNonConst().get(), r.getDataNonConst().get(), s.getDataNonConst().get(), u.getDataNonConst().get(), 1.,
                 static_cast<double>(omega_1), static_cast<double>(omega_2), alpha, size);
 
         //! (24) \f$ r = r - \omega_1 s - \omega_2 t \f$
-//          r = r - omega_1 * s - omega_2 * t;
         wrp_mpi::Update(r.getDataNonConst().get(), s.getDataNonConst().get(), t.getDataNonConst().get(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         /*!
          * Check convergence
          */
-//          convergence_check = r.norm() / normalizer;
         convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator) / normalizer;
 
         if ( ifprint && !(k % print_each) ) {
@@ -431,7 +400,6 @@ void BiCGSTAB2::solve(
         }
 
         //! (25) \f$ u = u - \omega_1 v - \omega_2 w \f$
-//          u = u - omega_1 * v - omega_2 * w;
         wrp_mpi::Update(u.getDataNonConst().get(), v.getDataNonConst().get(), w.getDataNonConst().get(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
@@ -443,7 +411,6 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
-//    MPI_Barrier(communicator);
 }
 
 template<class Preco, class MatrixType, class VectorType>
@@ -478,9 +445,8 @@ void BiCGSTAB2::solve(
     /*
      * MPI communicators
      */
-    const int myRank = x.Comm().MyPID ();
-    const Epetra_BlockMap _Map = x.Map();
-    int size = _Map.NumMyElements();    // local system size
+    const int myRank = x.getMap()->getComm()->getRank();
+    int size = x.getMap()->getNodeNumElements();    // local system size
 
     /*
      * First check if preconditioner has been built. If not - through a warning
@@ -496,29 +462,27 @@ void BiCGSTAB2::solve(
         return;
     }
 
-    VectorType r(_Map);
-    VectorType r_hat_0(_Map);
-    VectorType u(_Map);
-    VectorType v(_Map);
-    VectorType s(_Map);
-    VectorType w(_Map);
-    VectorType t(_Map);
-    VectorType u_hat(_Map);
-    VectorType r_hat(_Map);
-    VectorType v_hat(_Map);
-    VectorType s_hat(_Map);
-    VectorType tmp(_Map);
+    VectorType r(x.getMap());
+    VectorType r_hat_0(x.getMap());
+    VectorType u(x.getMap());
+    VectorType v(x.getMap());
+    VectorType s(x.getMap());
+    VectorType w(x.getMap());
+    VectorType t(x.getMap());
+    VectorType u_hat(x.getMap());
+    VectorType r_hat(x.getMap());
+    VectorType v_hat(x.getMap());
+    VectorType s_hat(x.getMap());
+    VectorType tmp(x.getMap());
 
     // Right preconditioner
     precond.solve(Matrix, tmp, x0, false);
     x0 = tmp;
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-//    r = (b - Matrix * x0);
-//    Matrix.Multiply(false, x0, v);
     Matrix.apply(x0, v);
     r = b;
-    r.Update(-1., v, 1.);
+    r.update(-1., v, 1.);
     wrp_mpi::Copy(r_hat_0.getDataNonConst().get(), r.getDataNonConst().get(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ w = 0 \f$, \f$ v = 0 \f$, \f$ \alpha = \rho[0] = \omega_1 = \omega_2 = 1\f$
@@ -617,7 +581,6 @@ void BiCGSTAB2::solve(
 
         //! (6) \f$ v = A M^{-1} u \f$
         precond.solve(Matrix, tmp, u, false);
-//        Matrix.Multiply(false, tmp, v);
         Matrix.apply(tmp, v);
 
         // Case of left preconditioner
@@ -642,7 +605,6 @@ void BiCGSTAB2::solve(
 
         //! (9) \f$ s = A M^{-1} r \f$
         precond.solve(Matrix, tmp, r, false);
-//        Matrix.Multiply(false, tmp, s);
         Matrix.apply(tmp, s);
 
         // Case of left preconditioner
@@ -662,12 +624,10 @@ void BiCGSTAB2::solve(
         rho[0] = rho[1];
 
         //! (12) \f$ v = s - \beta v \f$
-//          v = s - beta * v;
         wrp_mpi::Update(v.getDataNonConst().get(), s.getDataNonConst().get(), -beta, 1., size);
 
         //! (13) \f$ w = A M^{-1} v \f$
         precond.solve(Matrix, tmp, v, false);
-//        Matrix.Multiply(false, tmp, w);
         Matrix.apply(tmp, w);
 
         // Case of left preconditioner
@@ -698,7 +658,6 @@ void BiCGSTAB2::solve(
 
         //! (18) \f$ t = A M^{-1} s\f$
         precond.solve(Matrix, tmp, s, false);
-//        Matrix.Multiply(false, tmp, t);
         Matrix.apply(tmp, t);
 
         // Case of left preconditioner
@@ -711,18 +670,11 @@ void BiCGSTAB2::solve(
          */
         //! (19) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (20) \f$ \omega_2 = <r, t> \f$
-//        omega_1 = wrp_mpi::Dot(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
-//        mu = wrp_mpi::Dot(s.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
-//        nu = wrp_mpi::Dot(s.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-//        tau = wrp_mpi::Dot(t.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-//        omega_2 = wrp_mpi::Dot(r.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-
         reduced_g[0] = wrp_mpi::DotLocal(r.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
         reduced_g[1] = wrp_mpi::DotLocal(s.getDataNonConst().get(), s.getDataNonConst().get(), size, communicator);
         reduced_g[2] = wrp_mpi::DotLocal(s.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
         reduced_g[3] = wrp_mpi::DotLocal(t.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
         reduced_g[4] = wrp_mpi::DotLocal(r.getDataNonConst().get(), t.getDataNonConst().get(), size, communicator);
-
         MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
 
         omega_1 = reduced_l[0];
@@ -827,7 +779,6 @@ void BiCGSTAB2::solve(
         full_time = max_time - min_time;
         std::cout << "Extra time: " << full_time << std::endl;
     }
-//    MPI_Barrier(communicator);
 }
 }
 

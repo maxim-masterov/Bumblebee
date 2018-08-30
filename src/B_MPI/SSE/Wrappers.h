@@ -60,7 +60,7 @@ namespace wrp_mpi {
  */
 template<class Matrix, class Vector>
 inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) {
-    A.Multiply(transpose, v, res);
+    A.apply(v, res);
 }
 
 /*!
@@ -86,7 +86,8 @@ inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
 #endif
     for(uint32_t i = 0; i < size; ++i)
         res += v1[i] * v2[i];
-    return res;
+    long double res_comm = res;
+    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 #else
     /* Second optimized code */
     long double res = 0.0L;
@@ -111,8 +112,8 @@ inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     long double res_comm = res;
     MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 
-    return res_comm;
 #endif
+    return res_comm;
 }
 
 /*!
@@ -420,7 +421,6 @@ inline void Add(double *v1, double *v2, uint32_t size) {
  * @param size Size of provided vector
  * @return L2 norm
  */
-
 inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
     /*
      * Code below helps to avoid overflows. The idea is quite simple: take logarithm of whole
@@ -434,14 +434,20 @@ inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
     long double sum = 0.;
     long double xmax_loc = 0.;
 
-#ifdef USE_MAGIC_POWDER
-    xmax_loc = find_max_simd128(v1, size);
-#else
+    // NOTE: USE_MAGIC_POWDER is commented out because find_max_simd128 searches for the max value, not
+    // for the max absolute value.
+    // TODO: implement find_max_abs_simd128 function
+//#ifdef USE_MAGIC_POWDER
+//    xmax_loc = find_max_simd128(v1, size);
+//#else
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for reduction(max:xmax_loc)
+#endif
     for(uint32_t i = 0; i < size; ++i) {
         long double xabs = fabs(v1[i]);
         if (xabs > xmax_loc) xmax_loc = xabs;
     }
-#endif
+//#endif
     MPI_Allreduce(&xmax_loc, &xmax, 1, MPI_LONG_DOUBLE, MPI_MAX, _comm);
 
     if (xmax == 0.) return 0.;
@@ -455,11 +461,10 @@ inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
         sum += xs * xs;
     }
 
-    long double res = xmax * sqrt(sum);
-    long double res_comm = res;
-    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
+    long double sum_comm = 0.;
+    MPI_Allreduce(&sum, &sum_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 
-    return res_comm;
+    return xmax * sqrt(sum_comm);
 }
 
 /*!

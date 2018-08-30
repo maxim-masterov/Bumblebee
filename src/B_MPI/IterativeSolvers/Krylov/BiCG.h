@@ -159,31 +159,31 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
     /*
      * MPI communicators
      */
-    const int myRank = x.Comm().MyPID ();
-    const Epetra_BlockMap _Map = x.Map();
-    int size = _Map.NumMyElements();        // system size
+    const int myRank = x.getMap()->getComm()->getRank();
+    int size = x.getMap()->getNodeNumElements();    // local system size
 
-    VectorType r(_Map);
-    VectorType r_hat(_Map);
-    VectorType p(_Map);
-    VectorType p_hat(_Map);
+    VectorType r(x.getMap());
+    VectorType r_hat(x.getMap());
+    VectorType p(x.getMap());
+    VectorType p_hat(x.getMap());
 
-    VectorType tmp(_Map);
+    VectorType tmp(x.getMap());
 
     //! (1)	\f$ p_0 = r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
+    Matrix.apply(x0, tmp, Teuchos::NO_TRANS);
     r = b;
-    r.Update(-1., tmp, 1.);
+    r.update(-1., tmp, 1.);
 
     //! (1')	\f$ \hat{p}_0 = \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.Multiply(true, x0, tmp);
+    Matrix.apply(x0, tmp, Teuchos::TRANS);
     r_hat = b;
-    r_hat.Update(-1., tmp, 1.);
+    r_hat.update(-1., tmp, 1.);
 
     p = r; p_hat = r_hat;
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-    r_hat.Dot(r, &convergence_check);
+//    r_hat.Dot(r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r_hat.getDataNonConst().get(), r_hat.getDataNonConst().get(), size, communicator);
     delta[1] = alpha = convergence_check;
 
     /*!
@@ -198,7 +198,8 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
             normalizer = sqrt(delta[1]);
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
+//            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -236,8 +237,9 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
         }
 
         //! (2)	\f$ \alpha = <r, \hat{r}> / <\hat{p}, A p> \f$
-        Matrix.Multiply(false, p, tmp);
-        p_hat.Dot(tmp, &temp);                      // Note, this value can be very-very-very!!! small, e.g. 1e-33 O_o
+        Matrix.apply(p, tmp, Teuchos::NO_TRANS);
+//        p_hat.Dot(tmp, &temp);                      // Note, this value can be very-very-very!!! small, e.g. 1e-33 O_o
+        temp = wrp_mpi::Dot(p_hat.getDataNonConst().get(), tmp.getDataNonConst().get(), size, communicator);
 
         if (fabs(temp) <= LDBL_EPSILON) {
             if (myRank == 0)
@@ -247,20 +249,21 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
         alpha /= temp;
 
         //! (3)	\f$ x_{new} = x_{old} + \alpha p \f$
-        x.Update(alpha, p, 1.);
+        x.update(alpha, p, 1.);
 
         //! (4)	\f$ r_{new} = r_{old} - \alpha A p \f$
-        r.Update(-alpha, tmp, 1.);
+        r.update(-alpha, tmp, 1.);
 //        x.Update2(p, 1., static_cast<double>(alpha), r, tmp, 1., static_cast<double>(-alpha));
 
         //! (5)	\f$ \hat{r}_{new} = \hat{r}_{old} - \alpha A^T \hat{p} \f$
-        Matrix.Multiply(true, p_hat, tmp);
-        r_hat.Update(-alpha, tmp, 1.);
+        Matrix.apply(p_hat, tmp, Teuchos::TRANS);
+        r_hat.update(-alpha, tmp, 1.);
 //        r_hat.Update(tmp, 1., static_cast<double>(-alpha));
 
         //! (6)	\f$ \beta = <r_{new}, \hat{r}_{new}> / <r_{old}, \hat{r}_{old}> \f$
 //        alpha = r.Dot(r_hat);
-        r_hat.Dot(r, &alpha);
+//        r_hat.Dot(r, &alpha);
+        alpha = wrp_mpi::Dot(r_hat.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
         delta[0] = delta[1];
         delta[1] = alpha;
 
@@ -274,14 +277,15 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
 
         //! (7)	\f$ p_{new} = r_{new} + \beta p_{old} \f$
 //        p.Update(r, beta, 1.);
-        p.Update(1., r, beta);
+        p.update(1., r, beta);
 
         //! (8)	\f$ \hat{p}_{new} = \hat{r}_{new} + \beta \hat{p}_{old} \f$
 //        p_hat.Update(r_hat, beta, 1.);
-        p_hat.Update(1., r_hat, beta);
+        p_hat.update(1., r_hat, beta);
 
 //        convergence_check = r.Norm2() / normalizer;
-        r.Norm2(&convergence_check);
+//        r.Norm2(&convergence_check);
+        convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
         convergence_check /= normalizer;
 
         /*!
@@ -345,9 +349,8 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
     /*
      * MPI communicators
      */
-    const int myRank = x.Comm().MyPID ();
-    const Epetra_BlockMap _Map = x.Map();
-    int size = _Map.NumMyElements();        // system size
+    const int myRank = x.getMap()->getComm()->getRank();
+    int size = x.getMap()->getNodeNumElements();    // local system size
 
     /*
      * First check if preconditioner has been built. If not - through a warning
@@ -363,26 +366,27 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         return;
     }
 
-    VectorType r(_Map);
-    VectorType r_hat(_Map);
-    VectorType p(_Map);
-    VectorType p_hat(_Map);
-    VectorType z(_Map);
-    VectorType z_hat(_Map);
+    VectorType r(x.getMap());
+    VectorType r_hat(x.getMap());
+    VectorType p(x.getMap());
+    VectorType p_hat(x.getMap());
+    VectorType z(x.getMap());
+    VectorType z_hat(x.getMap());
 
-    VectorType tmp(_Map);
+    VectorType tmp(x.getMap());
 
     //! (1)	\f$ r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
+    Matrix.apply(x0, tmp, Teuchos::NO_TRANS);
     r = b;
-    r.Update(-1., tmp, 1.);
+    r.update(-1., tmp, 1.);
 
     //! (2)	\f$ \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.Multiply(true, x0, tmp);
+    Matrix.apply(x0, tmp, Teuchos::TRANS);
     r_hat = b;
-    r_hat.Update(-1., tmp, 1.);
+    r_hat.update(-1., tmp, 1.);
 
-    r_hat.Dot(r, &convergence_check);
+//    r_hat.Dot(r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r_hat.getDataNonConst().get(), r_hat.getDataNonConst().get(), size, communicator);
 
     /*!
      * Prepare stop criteria
@@ -396,7 +400,8 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
             normalizer = convergence_check;
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
+//            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -439,7 +444,8 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         precond.solve(Matrix, z, r, true);
         precond.solve(Matrix, z_hat, r_hat, true);
 
-        z.Dot(r_hat, &alpha);
+//        z.Dot(r_hat, &alpha);
+        alpha = wrp_mpi::Dot(z.getDataNonConst().get(), r_hat.getDataNonConst().get(), size, communicator);
 
         if (alpha == 0) {
             if (myRank == 0) {
@@ -458,11 +464,11 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
 
             //! (5)	\f$ p_{new} = r_{new} + \beta p_{old} \f$
 //            p.Update(z, beta, 1.);
-            p.Update(1., z, beta);
+            p.update(1., z, beta);
 
             //! (6)	\f$ \hat{p}_{new} = \hat{r}_{new} + \beta \hat{p}_{old} \f$
 //            p_hat.Update(z_hat, beta, 1.);
-            p_hat.Update(1., z_hat, beta);
+            p_hat.update(1., z_hat, beta);
         }
         //! Else set \f$ p = z \f$, \f$ \hat{p} = \hat{z} \f$, \f$ \delta_{new} = \delta_0 = <z, \hat{r}> \f$
         else {
@@ -473,9 +479,10 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         }
 
         //! (7)	\f$ \alpha = <z, \hat{r}> / <\hat{p}, A p> \f$
-        Matrix.Multiply(false, p, tmp);
+        Matrix.apply(p, tmp, Teuchos::NO_TRANS);
 //        temp = p_hat.Dot(tmp);
-        p_hat.Dot(tmp, &temp);
+//        p_hat.Dot(tmp, &temp);
+        temp = wrp_mpi::Dot(p_hat.getDataNonConst().get(), tmp.getDataNonConst().get(), size, communicator);
 
         if (fabs(temp) <= LDBL_EPSILON) {
             if (myRank == 0) {
@@ -487,19 +494,20 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
         alpha /= temp;
 
         //! (8)	\f$ x_{new} = x_{old} + \alpha p \f$
-        x.Update(alpha, p, 1.);
+        x.update(alpha, p, 1.);
 
         //! (9)	\f$ r_{new} = r_{old} - \alpha A p \f$
-        r.Update(-alpha, tmp, 1.);
+        r.update(-alpha, tmp, 1.);
 //        x.Update2(p, 1., static_cast<double>(alpha), r, tmp, 1., static_cast<double>(-alpha));
 
         //! (10)	\f$ \hat{r} = \hat{r}_{old} - \alpha A^T \hat{p} \f$
-        Matrix.Multiply(true, p_hat, tmp);
+        Matrix.apply(p_hat, tmp, Teuchos::TRANS);
 //        r_hat.Update(tmp, 1., static_cast<double>(-alpha));
-        r_hat.Update(-alpha, tmp, 1.);
+        r_hat.update(-alpha, tmp, 1.);
 
         if (stop_criteria != INTERN) {
-            r.Norm2(&convergence_check);
+//            r.Norm2(&convergence_check);
+            convergence_check = wrp_mpi::Norm2(r.getDataNonConst().get(), size, communicator);
             convergence_check /= normalizer;
         }
         else
