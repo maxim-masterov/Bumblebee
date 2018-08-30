@@ -156,13 +156,14 @@ void CG::solve(
     VectorType tmp(x.getMap());
 
     //! (1)  \f$ d_0 = r_0 = b - A x_0 \f$
-    Matrix.apply(x0, tmp);
+    wrp_mpi::Multiply(Matrix, x0, tmp, false);
     r = b;
-    r.update(-1., tmp, 1.);
+//    r.update(-1., tmp, 1.);
+    wrp_mpi::Update(r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -1., size);
     d = r;
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-    r.Dot(r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
     delta[1] = alpha = convergence_check;
 
     /*!
@@ -247,6 +248,8 @@ void CG::solve(
         }
 
         beta = delta[1] / delta[0];
+
+        std::cout << convergence_check << " " << alpha << " " << beta << " " << delta[0] << " " << delta[1] << "\n";
 
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
         wrp_mpi::Update(d.getDataNonConst().get(), r.getDataNonConst().get(), beta, 1., size);

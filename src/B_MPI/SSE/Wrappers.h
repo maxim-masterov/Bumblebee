@@ -60,7 +60,10 @@ namespace wrp_mpi {
  */
 template<class Matrix, class Vector>
 inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) {
-    A.Multiply(transpose, v, res);
+    if (transpose)
+        A.apply(v, res, Teuchos::TRANS);
+    else
+        A.apply(v, res, Teuchos::NO_TRANS);
 }
 
 /*!

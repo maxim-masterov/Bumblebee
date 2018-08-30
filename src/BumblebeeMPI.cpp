@@ -395,7 +395,7 @@ int main(int argc, char** argv) {
 
     //    RCP<MueLu::TpetraOperator<> > M = MueLu::CreateTpetraPreconditioner((RCP<operator_type>)A, mueluParams);
         slv_mpi::AMG amg;
-        slv_mpi::BiCG solver(*comm->getRawMpiComm());
+        slv_mpi::CG solver(*comm->getRawMpiComm());
 
         Teuchos::ParameterList MLList;
 //        ML_Epetra::SetDefaults("SA",MLList);
@@ -479,6 +479,7 @@ int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, int _Imax, int _Jmax,
     double sizes[3];
     fb::Index3 nodes;
 
+    sizes[0] = sizes[1] = sizes[2] = 1.;
     nodes.i = _Imax;
     nodes.j = _Jmax;
     nodes.k = _Kmax;
