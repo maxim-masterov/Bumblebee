@@ -55,12 +55,7 @@ union _neighb {
 };
 
 inline double getRealTime();
-int StripeDecomposition(Epetra_Map *&Map, int _nx, int _ny, int _nz, int _size,
-    const Epetra_MpiComm &comm);
-int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm);
-int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Imax, int _Jmax,
+int Full3dDecomposition(Epetra_Map *&Map, int _Imax, int _Jmax,
     int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm);
 
 /*
@@ -278,7 +273,7 @@ int main(int argc, char** argv) {
 
     Epetra_Map *myMap = nullptr;  // if create do not forget do delete!
     geo::SMesh grid;
-    Full3dDecomposition(myMap, 0.05, 0.05, 1.4, _nx + 1, _ny + 1, _nz + 1, grid, comm);
+    Full3dDecomposition(myMap, _nx + 1, _ny + 1, _nz + 1, grid, comm);
 
     /*
      * Lowlevel matrix assembly (row-by-row from left to right)
@@ -297,8 +292,6 @@ int main(int argc, char** argv) {
         full = max_time - min_time;
         std::cout << "Assembly time: " << full << std::endl;
     }
-
-    std::cout << *A << "\n";
 
     /*
      * Epetra vectors for Unknowns and RHS
@@ -391,52 +384,7 @@ inline double getRealTime() {
     return (double)tv.tv_sec + 1.0e-6 * (double)tv.tv_usec;
 }
 
-int StripeDecomposition(Epetra_Map *&Map, int _nx, int _ny, int _nz, int _size,
-    const Epetra_MpiComm &comm) {
-
-    int myRank = comm.MyPID();
-    int numProc = comm.NumProc();
-    int chunk_size;
-    int chunk_start;
-    int chunk_end;
-    int nynz;
-
-    /*
-     * First check if this kind of decomposition is possible at all
-     */
-    if (numProc > _nx) {
-        if (myRank == 0)
-            std::cout << "ERROR: Map for stripe decomposition can't be performed, since number "
-                "of cores is greater than number of nodes along x direction.\n"
-                "Standard Epetra Map will be create instead...\t" << std::endl;
-        Map = new Epetra_Map(_size, 0, comm);
-        return 1;
-    }
-
-    /*
-     * Treat 2d case
-     */
-    if (_nz == 0) _nz = 1;
-
-    nynz = _ny * _nz;
-
-    chunk_size = _nx / numProc; // because c always round to the lower boundary
-    chunk_start = myRank * chunk_size;
-    chunk_end = chunk_start + chunk_size;
-
-    /*
-     * Assign last process with the end of domain, so it will contain last stripe
-     */
-    if (myRank == (numProc - 1)) chunk_end = _nx;
-
-    chunk_size = (chunk_end - chunk_start) * nynz;
-
-    Map = new Epetra_Map(_size, chunk_size, 0, comm);
-
-    return 0;
-}
-
-int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Imax, int _Jmax,
+int Full3dDecomposition(Epetra_Map *&Map, int _Imax, int _Jmax,
     int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm) {
 
     int my_rank = 0;
@@ -446,10 +394,6 @@ int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Ima
     dcp::Decomposer decomp;
     double sizes[3];
     fb::Index3 nodes;
-
-    sizes[0] = L;
-    sizes[1] = H;
-    sizes[2] = D;
 
     nodes.i = _Imax;
     nodes.j = _Jmax;
@@ -481,147 +425,3 @@ int Full3dDecomposition(Epetra_Map *&Map, double L, double H, double D, int _Ima
 
     return 0;
 }
-
-int Decomposition4(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-            MyGlobalElements[2] = 4;
-            MyGlobalElements[3] = 5;
-            break;
-
-        case 1:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 6;
-            MyGlobalElements[3] = 7;
-            break;
-
-        case 2:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 8;
-            MyGlobalElements[1] = 9;
-            MyGlobalElements[2] = 12;
-            MyGlobalElements[3] = 13;
-            break;
-
-        case 3:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 10;
-            MyGlobalElements[1] = 11;
-            MyGlobalElements[2] = 14;
-            MyGlobalElements[3] = 15;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-
-int Decomposition3(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-            MyGlobalElements[2] = 4;
-            MyGlobalElements[3] = 5;
-            break;
-
-        case 1:
-            MyElements = 4;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 6;
-            MyGlobalElements[3] = 7;
-            break;
-
-        case 2:
-            MyElements = 8;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 8;
-            MyGlobalElements[1] = 9;
-            MyGlobalElements[2] = 10;
-            MyGlobalElements[3] = 11;
-            MyGlobalElements[4] = 12;
-            MyGlobalElements[5] = 13;
-            MyGlobalElements[6] = 14;
-            MyGlobalElements[7] = 15;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-
-
-int Decomposition2(Epetra_Map *&Map, int _size, const Epetra_MpiComm &comm) {
-
-    int my_pid = comm.MyPID();
-    int MyElements = 0;
-    int *MyGlobalElements;
-    switch(my_pid) {
-        case 0:
-            MyElements = 8;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 0;
-            MyGlobalElements[1] = 1;
-
-            MyGlobalElements[2] = 5;
-            MyGlobalElements[3] = 6;
-
-            MyGlobalElements[4] = 10;
-            MyGlobalElements[5] = 11;
-
-            MyGlobalElements[6] = 15;
-            MyGlobalElements[7] = 16;
-            break;
-
-        case 1:
-            MyElements = 12;
-            MyGlobalElements = new int[MyElements];
-            MyGlobalElements[0] = 2;
-            MyGlobalElements[1] = 3;
-            MyGlobalElements[2] = 4;
-
-            MyGlobalElements[3] = 7;
-            MyGlobalElements[4] = 8;
-            MyGlobalElements[5] = 9;
-
-            MyGlobalElements[6] = 12;
-            MyGlobalElements[7] = 13;
-            MyGlobalElements[8] = 14;
-
-            MyGlobalElements[9] = 17;
-            MyGlobalElements[10] = 18;
-            MyGlobalElements[11] = 19;
-            break;
-    }
-
-    Map = new Epetra_Map(-1, MyElements, MyGlobalElements, 0, comm);
-
-    delete [] MyGlobalElements;
-    return 0;
-}
-
