@@ -20,7 +20,7 @@
 #define IS_EVEN(x) (!(x & 1))
 #define IS_ODD(x) (x & 1)
 
-//#define USE_MAGIC_POWDER
+#define USE_MAGIC_POWDER
 /*!
  * Type of convergence criteria
  */

@@ -156,15 +156,13 @@ void CG::solve(
     VectorType tmp(x.getMap());
 
     //! (1)  \f$ d_0 = r_0 = b - A x_0 \f$
-//    Matrix.Multiply(false, x0, tmp);
-    wrp_mpi::Multiply(Matrix, x0, tmp, false);
+    Matrix.apply(x0, tmp);
     r = b;
     r.update(-1., tmp, 1.);
     d = r;
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-//    r.Dot(r, &convergence_check);
-    convergence_check = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);
+    r.Dot(r, &convergence_check);
     delta[1] = alpha = convergence_check;
 
     /*!
@@ -179,7 +177,7 @@ void CG::solve(
             normalizer = sqrt(convergence_check);
             break;
         case RBNORM:
-            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get() , size, communicator);
+            normalizer = wrp_mpi::Norm2(b.getDataNonConst().get(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -215,24 +213,18 @@ void CG::solve(
         }
 
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
-//        Matrix.Multiply(false, d, tmp);
         wrp_mpi::Multiply(Matrix, d, tmp, false);
-//        d.Dot(tmp, &temp);
         temp = wrp_mpi::Dot(d.getDataNonConst().get(), tmp.getDataNonConst().get(), size, communicator);
         alpha /= temp;          // Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
-        x.update(alpha, d, 1.);
-//
-//        //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
-        r.update(-alpha, tmp, 1.);
-//        wrp_mpi::Update2(
-//                x, d, 1., alpha,
-//                r, tmp, 1., -alpha,
-//                size);
+        //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
+        wrp_mpi::Update2(
+                x.getDataNonConst().get(), d.getDataNonConst().get(), 1., alpha,
+                r.getDataNonConst().get(), tmp.getDataNonConst().get(), 1., -alpha,
+                size);
 
         //! (5)   \f$ \beta = <r_{new}, r_{new}> / <r_{old}, r_{old}> \f$
-//        r.Dot(r, &alpha);                       // Possible break down if alpha == 0.0
         alpha = wrp_mpi::Dot(r.getDataNonConst().get(), r.getDataNonConst().get(), size, communicator);       // Possible break down if alpha == 0.0
         delta[0] = delta[1];
         delta[1] = alpha;
@@ -257,8 +249,7 @@ void CG::solve(
         beta = delta[1] / delta[0];
 
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
-        d.update(1., r, beta);
-//        wrp_mpi::Update(d, r, beta, 1., size);
+        wrp_mpi::Update(d.getDataNonConst().get(), r.getDataNonConst().get(), beta, 1., size);
 
         /*
          * Check for convergence stalling

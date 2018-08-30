@@ -60,7 +60,7 @@ namespace wrp_mpi {
  */
 template<class Matrix, class Vector>
 inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) {
-    A.apply(v, res);
+    A.Multiply(transpose, v, res);
 }
 
 /*!
@@ -79,18 +79,18 @@ inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) 
  */
 inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     /* Original code */
-#ifndef USE_MAGIC_POWDER
     long double res = 0.0L;
+    long double res_comm = 0.0L;
+#ifndef USE_MAGIC_POWDER
 #ifdef BUMBLEBEE_USE_OPENMP
 #pragma omp parallel for reduction(+:res)
 #endif
     for(uint32_t i = 0; i < size; ++i)
         res += v1[i] * v2[i];
-    long double res_comm = res;
+    res_comm = res;
     MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
 #else
     /* Second optimized code */
-    long double res = 0.0L;
     uint32_t i = 0;
     int lvl = 4;									// unrolling level
 #ifdef USE_MAGIC_POWDER
@@ -109,9 +109,8 @@ inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
     for(i = ROUND_DOWN(size, lvl); i < size; ++i)
         res += v1[i] * v2[i];
 
-    long double res_comm = res;
+    res_comm = res;
     MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
-
 #endif
     return res_comm;
 }
@@ -421,6 +420,7 @@ inline void Add(double *v1, double *v2, uint32_t size) {
  * @param size Size of provided vector
  * @return L2 norm
  */
+
 inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
     /*
      * Code below helps to avoid overflows. The idea is quite simple: take logarithm of whole

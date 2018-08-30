@@ -63,7 +63,7 @@ union _neighb {
 };
 
 inline double getRealTime();
-int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, double L, double H, double D, int _Imax, int _Jmax,
+int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, int _Imax, int _Jmax,
     int _Kmax, geo::SMesh &grid, Teuchos::RCP<Teuchos::MpiComm<int> > &comm);
 
 /*
@@ -328,9 +328,9 @@ int main(int argc, char** argv) {
         NumGlobalElements = _nx * _ny * _nz;
     }
     else {
-        _nx = 20;
-        _ny = 20;
-        _nz = 20;
+        _nx = 4;
+        _ny = 4;
+        _nz = 4;
         NumGlobalElements = _nx * _ny * _nz;
     }
 
@@ -349,7 +349,7 @@ int main(int argc, char** argv) {
 
         geo::SMesh grid;
         Teuchos::RCP<SpMap> myMap;
-        Full3dDecomposition(myMap, 0.05, 0.05, 1.4, _nx + 1, _ny + 1, _nz + 1, grid, comm);
+        Full3dDecomposition(myMap, _nx + 1, _ny + 1, _nz + 1, grid, comm);
 
         const int myRank = comm->getRank();
         const int numProcs = comm->getSize();
@@ -443,8 +443,8 @@ int main(int argc, char** argv) {
         solver.PrintHistory(true, 1);
 
         time1 = MPI_Wtime();
-        solver.solve(amg, *A, x, b, x);
-//        solver.solve(*A, x, b, x);
+//        solver.solve(amg, *A, x, b, x);
+        solver.solve(*A, x, b, x);
         time2 = MPI_Wtime();
 
         amg.Destroy();
@@ -472,16 +472,12 @@ inline double getRealTime() {
     return (double)tv.tv_sec + 1.0e-6 * (double)tv.tv_usec;
 }
 
-int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, double L, double H, double D, int _Imax, int _Jmax,
+int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, int _Imax, int _Jmax,
     int _Kmax, geo::SMesh &grid, Teuchos::RCP<Teuchos::MpiComm<int> > &comm) {
 
     dcp::Decomposer decomp;
     double sizes[3];
     fb::Index3 nodes;
-
-    sizes[0] = L;
-    sizes[1] = H;
-    sizes[2] = D;
 
     nodes.i = _Imax;
     nodes.j = _Jmax;

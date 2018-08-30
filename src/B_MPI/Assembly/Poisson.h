@@ -182,6 +182,10 @@ public:
             }
 
             Matrix.insertGlobalValues(MyGlobalElements[i], NumEntries, Values, Indices);
+
+            for(int n = 0; n < NumEntries; ++n) {
+                std::cout << MyGlobalElements[i] << "\t" << Indices[n] << "\t" << Values[n] << "\n";
+            }
         }
 
         /*
