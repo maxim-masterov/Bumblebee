@@ -78,41 +78,49 @@ inline void Multiply(Matrix &A, Vector &v, Vector &res, bool transpose = false) 
  * @return Dot product
  */
 inline long double Dot(double *v1, double *v2, uint32_t size, MPI_Comm &_comm) {
-    /* Original code */
-#ifndef USE_MAGIC_POWDER
-    long double res = 0.0L;
+    /*
+     * Code below helps to avoid overflows. The idea is quite simple: take logarithm of whole
+     * expression, calculate logarithmic values and than obtain true result through exp:
+     * log(a0 + a1 + a2 + ...) = log(a0) + log (1 + sum(ai/a0)) = log(a0 * (1 + sum(ai/a0))) =
+     * log (a0 + a0 * sum(ai/a0))
+     * where a0 = max(abs(ai)). Thus, obtained expression under log we can easily and safely obtain
+     * desired value of L2 norm.
+     */
+    long double xmax = 0., scale;
+    long double sum = 0.;
+    long double xmax_loc = 0.;
+
+    // NOTE: USE_MAGIC_POWDER is commented out because find_max_simd128 searches for the max value, not
+    // for the max absolute value.
+    // TODO: implement find_max_abs_simd128 function
+//#ifdef USE_MAGIC_POWDER
+//    xmax_loc = find_max_simd128(v1, size);
+//#else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for reduction(+:res)
+#pragma omp parallel for reduction(max:xmax_loc)
 #endif
-    for(uint32_t i = 0; i < size; ++i)
-        res += v1[i] * v2[i];
-    return res;
-#else
-    /* Second optimized code */
-    long double res = 0.0L;
-    uint32_t i = 0;
-    int lvl = 4;									// unrolling level
-#ifdef USE_MAGIC_POWDER
-    _mm_prefetch((char*)v1, _MM_HINT_T1);
-    _mm_prefetch((char*)v2, _MM_HINT_T1);
-#endif
-#ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for reduction(+:res)
-#endif
-    for(uint32_t i = 0; i < ROUND_DOWN(size, lvl); i+=lvl) {
-        __m128d r1 = _mm_mul_pd(_mm_load_pd(v1 + i), _mm_load_pd(v2 + i));
-        __m128d r2 = _mm_mul_pd(_mm_load_pd(v1 + i + 2), _mm_load_pd(v2 + i + 2));
-        r1 = _mm_add_pd(r1, r2);
-        res += _mm_cvtsd_f64(_mm_hadd_pd(r1, r1));
+    for(uint32_t i = 0; i < size; ++i) {
+        long double xabs = fabs(v1[i]);
+        if (xabs > xmax_loc) xmax_loc = xabs;
     }
-    for(i = ROUND_DOWN(size, lvl); i < size; ++i)
-        res += v1[i] * v2[i];
+//#endif
+    MPI_Allreduce(&xmax_loc, &xmax, 1, MPI_LONG_DOUBLE, MPI_MAX, _comm);
 
-    long double res_comm = res;
-    MPI_Allreduce(&res, &res_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
+    if (xmax == 0.) return 0.;
+    scale = 1.0 / xmax;
 
-    return res_comm;
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for reduction(+:sum) num_threads(USE_MAGIC_POWDER)
 #endif
+    for(uint32_t i = 0; i < size; ++i) {
+        double xs = scale * v1[i];
+        sum += xs * xs;
+    }
+
+    long double sum_comm = 0.;
+    MPI_Allreduce(&sum, &sum_comm, 1, MPI_LONG_DOUBLE, MPI_SUM, _comm);
+
+    return xmax * sqrt(sum_comm);
 }
 
 /*!
