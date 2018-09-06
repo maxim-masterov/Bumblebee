@@ -41,10 +41,10 @@ public:
     /*!
      * \brief Setup for AMG solver
      */
-    template <typename Scalar, typename LocalOrdinal, typename GlobalOrdinal, typename Node>
-    inline void Coarse(const Teuchos::RCP<Tpetra::Operator<Scalar, LocalOrdinal, GlobalOrdinal, Node> > &Matrix) {
+//    template <typename Scalar, typename LocalOrdinal, typename GlobalOrdinal, typename Node>
+    inline void Coarse(const Teuchos::RCP<Tpetra::Operator<double, int, int, KokkosClassic::DefaultNode::DefaultNodeType> > &Matrix) {
         CleanMemory();
-        M = MueLu::CreateTpetraPreconditioner(Matrix, mueluParams);
+        M = MueLu::CreateTpetraPreconditioner<double, int, int, KokkosClassic::DefaultNode::DefaultNodeType>(Matrix, mueluParams, Teuchos::null, Teuchos::null);
         is_built = true;
     }
 
@@ -89,7 +89,7 @@ private:
     }
 
 private:
-    Teuchos::RCP<MueLu::TpetraOperator<>> M;
+    Teuchos::RCP<MueLu::TpetraOperator<double, int, int, KokkosClassic::DefaultNode::DefaultNodeType> > M;
     Teuchos::ParameterList mueluParams;
     bool is_built;
 };

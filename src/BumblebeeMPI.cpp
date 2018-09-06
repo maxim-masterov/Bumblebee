@@ -376,7 +376,6 @@ int main(int argc, char** argv) {
             std::cout << "Assembly time: " << full << std::endl;
         }
 
-        std::cout << (*A) << "\n";
 
         /*
          * Create vectors for Unknowns and RHS
@@ -393,32 +392,8 @@ int main(int argc, char** argv) {
         time1 = MPI_Wtime();
         // create a parameter list for ML options
 
-    //    RCP<MueLu::TpetraOperator<> > M = MueLu::CreateTpetraPreconditioner((RCP<operator_type>)A, mueluParams);
         slv_mpi::AMG amg;
         slv_mpi::CG solver(*comm->getRawMpiComm());
-
-        Teuchos::ParameterList MLList;
-//        ML_Epetra::SetDefaults("SA",MLList);
-        MLList.set("multigrid algorithm", "sa");
-//        MLList.set("ML output", 0);
-        MLList.set("max levels", 5);
-        MLList.set("aggregation: type", "uncoupled");
-        MLList.set("smoother: type", "chebyshev");
-//        MLList.set("chebyshev: degree", 1);
-        MLList.set("smoother: pre or post", "both");
-        MLList.set("coarse: type", "KLU2");
-//        MLList.set("eigen-analysis: type", "cg");
-//        MLList.set("eigen-analysis: iterations", 7);
-
-
-//        Teuchos::RCP<MueLu::TpetraOperator> mueLuPreconditioner;
-        Teuchos::ParameterList paramList;
-        paramList.set("verbosity", "medium");
-        paramList.set("multigrid algorithm", "sa");
-        paramList.set("aggregation: type", "uncoupled");
-        paramList.set("smoother: type", "CHEBYSHEV");
-        paramList.set("coarse: max size", 500);
-//        mueLuPreconditioner = Teuchos::rcp(MueLu::CreateTpetraPreconditioner(*A, paramList));
 
         std::string solverOptionsFile = "amg.xml";
         Teuchos::ParameterList mueluParams;
@@ -428,34 +403,34 @@ int main(int argc, char** argv) {
         time1 = MPI_Wtime();
         typedef Tpetra::Operator<double, int, int, KokkosClassic::DefaultNode::DefaultNodeType> operator_type;
         amg.Coarse((Teuchos::RCP<operator_type>)A);
-        time2 = MPI_Wtime();
-
-        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
-        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
-        if (myRank == 0) {
-            full = max_time - min_time;
-            std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
-        }
-
-        solver.SetStopCriteria(RNORM);
-        solver.SetMaxIter(100);
-        solver.SetTolerance(1e-8);
-        solver.PrintHistory(true, 1);
-
-        time1 = MPI_Wtime();
-        solver.solve(amg, *A, x, b, x);
+//        time2 = MPI_Wtime();
+//
+//        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+//        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+//        if (myRank == 0) {
+//            full = max_time - min_time;
+//            std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
+//        }
+//
+//        solver.SetStopCriteria(RNORM);
+//        solver.SetMaxIter(100);
+//        solver.SetTolerance(1e-8);
+//        solver.PrintHistory(true, 1);
+//
+//        time1 = MPI_Wtime();
+////        solver.solve(amg, *A, x, b, x);
 //        solver.solve(*A, x, b, x);
-        time2 = MPI_Wtime();
-
-        amg.Destroy();
-
-        /* time2 */
-        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
-        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
-        if (myRank == 0) {
-            full = max_time - min_time;
-            std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
-        }
+//        time2 = MPI_Wtime();
+//
+//        amg.Destroy();
+//
+//        /* time2 */
+//        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+//        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+//        if (myRank == 0) {
+//            full = max_time - min_time;
+//            std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
+//        }
     }
 #ifdef HAVE_MPI
     // Since you called MPI_Init, you are responsible for calling
