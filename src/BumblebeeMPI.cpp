@@ -422,6 +422,6 @@ int Full3dDecomposition(Epetra_Map *&Map, int _Imax, int _Jmax,
                             list_global_elements.data(),
                             0,
                             comm);
-
+//    MPI_Barrier(comm.Comm());
     return 0;
 }
