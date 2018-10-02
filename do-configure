@@ -1,13 +1,36 @@
 cmake \
 -D Trilinos_USE_GNUINSTALLDIRS=TRUE \
+-D Trilinos_ENABLE_EXPLICIT_INSTANTIATION:BOOL=ON \
+-D BUILD_SHARED_LIBS:BOOL=ON \
+-D CMAKE_BUILD_TYPE=RELEASE \
+-D CMAKE_CXX_FLAGS_RELEASE_OVERRIDE="-O3 -funroll-loops" \
+-D CMAKE_C_FLAGS_RELEASE_OVERRIDE="-O3 -funroll-loops" \
+-D CMAKE_Fortran_FLAGS_RELEASE_OVERRIDE="-O5 -funroll-all-loops -malign-double" \
+-D Trilinos_ENABLE_CXX11=ON \
 -D TPL_ENABLE_MPI=ON \
+-D MPI_BASE_DIR:FILEPATH=/usr/lib/openmpi/ \
+-D MPI_EXEC:FILEPATH=/usr/lib/openmpi/bin/mpiexec \
+-D CMAKE_C_COMPILER=/usr/lib/openmpi/bin/mpicc \
+-D CMAKE_CXX_COMPILER=/usr/lib/openmpi/bin/mpicxx \
+-D CMAKE_Fortran_COMPILER=/usr/lib/openmpi/bin/mpif90 \
 -D MPI_BASE_DIR=/opt/local/ \
 -D Trilinos_ENABLE_Epetra=ON \
+-D Trilinos_ENABLE_Tpetra=ON \
+-D Trilinos_ENABLE_Xpetra=ON \
 -D Trilinos_ENABLE_AztecOO=ON \
+-D Trilinos_ENABLE_Amesos=ON \
 -D Trilinos_ENABLE_Ifpack=ON \
+-D Trilinos_ENABLE_Isorropia=ON \
+-D Trilinos_ENABLE_Galeri=ON \
+-D Trilinos_ENABLE_Zoltan=ON \
 -D Trilinos_ENABLE_Teuchos=ON \
+-D Trilinos_ENABLE_Amesos2=ON \
+-D Trilinos_ENABLE_Belos=ON \
+-D Trilinos_ENABLE_Ifpack2=ON \
+-D Trilinos_ENABLE_Zoltan2=ON \
 -D Trilinos_ENABLE_ML=ON \
--D CMAKE_INSTALL_PREFIX=/Users/maxim/Pragma/Libs/Trilinos_12_13 \
-/Users/maxim/Pragma/Libs/Trilinos/raw
+-D Trilinos_ENABLE_MueLu=ON \
+-D CMAKE_INSTALL_PREFIX=/usr/local/include/Trilinos \
+/home/maxim/Pragma/Libs/Trilinos
 
-make -j 4 install
+make -j 6 install
