@@ -311,6 +311,7 @@ int main(int argc, char** argv) {
     // create a parameter list for ML options
     Teuchos::ParameterList MLList;
     slv_mpi::AMG amg;
+//    slv_mpi::BiCGSTAB solver(comm.Comm());
 //    slv_mpi::BiCGSTAB2<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
     slv_mpi::IBiCGSTAB2<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
     ML_Epetra::SetDefaults("DD",MLList);
@@ -344,14 +345,14 @@ int main(int argc, char** argv) {
     }
 
     solver.SetStopCriteria(RNORM);
-    solver.SetMaxIter(100);
+    solver.SetMaxIter(2);
     solver.SetTolerance(1e-8);
     solver.PrintHistory(true, 1);
 
     time1 = time.WallTime();
     for(int n = 0; n < 1; ++n) {
-//        solver.solve(amg, *A, x, b, x);
         x.PutScalar(0.);
+//        solver.solve(amg, *A, x, b, x);
         solver.solve(*A, x, b, x);
     }
     time2 = time.WallTime();

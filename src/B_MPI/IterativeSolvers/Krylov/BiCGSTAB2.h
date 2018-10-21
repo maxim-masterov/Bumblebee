@@ -128,7 +128,7 @@ public:
     }
 
     /*!
-     * \brief Conjugate Gradient method
+     * \brief Hybrid BiConjugate Gradient Stabilized method
      *
      * \par For developers
      * Method contains:
@@ -150,7 +150,7 @@ public:
                 VectorType &x0);
 
     /*!
-     * \brief Preconditioned Conjugate Gradient method
+     * \brief Preconditioned Hybrid BiConjugate Gradient Stabilized method
      *
      * Preconditioned BiConjugate Gradient Stabilized (2) method uses right-preconditioned form, i.e.
      *                  \f{eqnarray*}{ A M^{-1} y =  b, \\ x = M^{-1} y \f}
@@ -665,6 +665,14 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         //! (7) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
         gamma = wrp_mpi::Dot(v->Values(), r_hat_0->Values(), size, communicator);
 
+        std::cout << "\n";
+        std::cout << "omega_1: " << omega_1 << "\n";
+        std::cout << "omega_2: " << omega_2 << "\n";
+        std::cout << "rho[0]: " << rho[0] << "\n";
+        std::cout << "alpha: " << alpha << "\n";
+        std::cout << "beta: " << beta << "\n";
+        std::cout << "gamma: " << gamma << "\n\n";
+
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
             if (myRank == 0)
@@ -696,6 +704,11 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         rho[1] = wrp_mpi::Dot(r_hat_0->Values(), s->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
+
+        std::cout << "rho[0]: " << rho[0] << "\n";
+        std::cout << "alpha: " << alpha << "\n";
+        std::cout << "beta: " << beta << "\n";
+        std::cout << "gamma: " << gamma << "\n\n";
 
         //! (12) \f$ v = s - \beta v \f$
 //          v = s - beta * v;
