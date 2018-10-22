@@ -131,7 +131,8 @@ public:
             if (t_hat != nullptr) delete t_hat;
             if (p) delete p;
             if (xi != nullptr) delete xi;
-            if (tmp != nullptr) delete tmp;;
+            if (tmp != nullptr) delete tmp;
+            allocated = false;
         }
     }
 

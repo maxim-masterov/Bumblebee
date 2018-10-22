@@ -88,6 +88,7 @@ class BiCGSTAB2: public Base {
     VectorType *tmp;
     bool reallocate;
     bool allocated;
+
 public:
 
     BiCGSTAB2(MPI_Comm _comm, bool _reallocate = false) :
@@ -124,6 +125,7 @@ public:
             if (v_hat != nullptr) delete v_hat;
             if (s_hat != nullptr) delete s_hat;
             if (tmp != nullptr) delete tmp;
+            allocated = false;
         }
     }
 

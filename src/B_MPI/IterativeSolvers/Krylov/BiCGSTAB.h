@@ -66,18 +66,56 @@ namespace slv_mpi {
  * std::cout << "Residual: " << bicgstab.Residual() << std::endl;
  * \endcode
  */
+template <class MatrixType, class VectorType>
 class BiCGSTAB: public Base {
+
+    VectorType *r;
+    VectorType *r_hat_0;
+    VectorType *p;
+    VectorType *s;
+    VectorType *v;
+    VectorType *s_hat;
+    VectorType *p_hat;
+    bool reallocate;
+    bool allocated;
 
 public:
 
-    BiCGSTAB(MPI_Comm _comm) :
+    BiCGSTAB(MPI_Comm _comm, bool _reallocate = false) :
         Base(_comm) {
+
+        r = nullptr;
+        r_hat_0 = nullptr;
+        p = nullptr;
+        s = nullptr;
+        v = nullptr;
+        s_hat = nullptr;
+        p_hat = nullptr;
+
+        reallocate = _reallocate;
+        allocated = false;
     }
-    ;
 
     ~BiCGSTAB() {
+
+        if (!reallocate) {
+            r = nullptr;
+            r_hat_0 = nullptr;
+            p = nullptr;
+            s = nullptr;
+            v = nullptr;
+            s_hat = nullptr;
+            p_hat = nullptr;
+
+            if (r != nullptr) delete r;
+            if (r_hat_0 != nullptr) delete r_hat_0;
+            if (p != nullptr) delete p;
+            if (s != nullptr) delete s;
+            if (v != nullptr) delete v;
+            if (s_hat != nullptr) delete s_hat;
+            allocated = false;
+        }
     }
-    ;
 
     /*!
      * \brief BiConjugate Gradient Stabilized method
@@ -94,7 +132,6 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class MatrixType, class VectorType>
     void solve(
                 MatrixType &Matrix,
                 VectorType &x,
@@ -129,7 +166,7 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class Preco, class MatrixType, class VectorType>
+    template<class Preco>
     void solve(
                 Preco &precond,
                 MatrixType &Matrix,
@@ -138,8 +175,8 @@ public:
                 VectorType &x0);
 };
 
-template<class MatrixType, class VectorType>
-void BiCGSTAB::solve(
+template <class MatrixType, class VectorType>
+void BiCGSTAB<MatrixType, VectorType>::solve(
                     MatrixType &Matrix,
                     VectorType &x,
                     VectorType &b,
@@ -383,8 +420,9 @@ void BiCGSTAB::solve(
     residual_norm = convergence_check;
 }
 
-template<class Preco, class MatrixType, class VectorType>
-void BiCGSTAB::solve(
+template <class MatrixType, class VectorType>
+template<class Preco>
+void BiCGSTAB<MatrixType, VectorType>::solve(
                     Preco &precond,
                     MatrixType &Matrix,
                     VectorType &x,
