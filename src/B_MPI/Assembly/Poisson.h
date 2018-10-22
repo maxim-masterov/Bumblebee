@@ -69,6 +69,7 @@ public:
     template<typename SpMatrix>
     void AssemblePoisson(
                         SpMatrix &Matrix,
+                        Teuchos::RCP<Teuchos::MpiComm<int> > &comm,
                         int nx,
                         int ny,
                         int nz = 0) {
@@ -109,11 +110,22 @@ public:
             is3D = true;                                // Specify that current case is 3d
         }
 
+        double time1 = MPI_Wtime();
         double *Values = new double[dimension + 1];             // Array of values in a row (excluding diagonal)
         int *Indices = new int[dimension + 1];                  // Array of column indices (excluding diagonal)
         int NumEntries;                                     // Number of non zeros in a row
         int NumMyElements = Matrix.getMap()->getNodeNumElements();      // Number of local elements
         auto MyGlobalElements = Matrix.getMap()->getMyGlobalIndices();// Global index of local elements
+
+        double time2 = MPI_Wtime();
+
+        double min_time, max_time, full;
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (Matrix.getComm()->getRank() == 0) {
+            full = max_time - min_time;
+            std::cout << "1) time: " << full << std::endl;
+        }
 
         /*
          * Low-level matrix assembly (row-by-row from left to right)

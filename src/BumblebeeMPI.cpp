@@ -69,7 +69,8 @@ int Full3dDecomposition(Teuchos::RCP<SpMap> &Map, int _Imax, int _Jmax,
 /*
  * Mimics build of coefficients
  */
-void BuildCoefficients(int i, int _ny, int _nz, int *MyGlobalElements, int NumGlobalElements, _neighb &weights) {
+template <typename T>
+void BuildCoefficients(int i, int _ny, int _nz, T MyGlobalElements, int NumGlobalElements, _neighb &weights) {
 
     double diag = 4.;
     double offd = -1.;
@@ -155,92 +156,24 @@ void BuildCoefficients(int i, int _ny, int _nz, int *MyGlobalElements, int NumGl
 //    std::cout << "\n";
 }
 
-//void
-//exampleRoutine (const Teuchos::RCP<const Teuchos::Comm<int> >& comm,
-//                std::ostream& out)
-//{
-//  using std::endl;
-//  using Teuchos::Array;
-//  using Teuchos::ArrayRCP;
-//  using Teuchos::ArrayView;
-//  using Teuchos::outArg;
-//  using Teuchos::RCP;
-//  using Teuchos::rcp;
-//  using Teuchos::REDUCE_SUM;
-//  using Teuchos::reduceAll;
-//  const int myRank = comm->getRank ();
-//  // Print out the Tpetra software version information.
-//  if (myRank == 0) {
-//    out << Tpetra::version () << endl << endl;
-//  }
-//  // Type of the Tpetra::Map specialization to use.
-//  using map_type = Tpetra::Map<>;
-//  using vector_type = Tpetra::Vector<double>;
-//  using global_ordinal_type = vector_type::global_ordinal_type;
+//template <typename Matrix>
+//void AssembleMatrixGlob(int dimension, int _nx, int _ny, int _nz, SpMatrix &A) {
 //
-//  // Create a Tpetra Map
-//  // The total (global, i.e., over all MPI processes) number of
-//  // entries in the Map.
-//  //
-//  // For this example, we scale the global number of entries in the
-//  // Map with the number of MPI processes.  That way, you can run this
-//  // example with any number of MPI processes and every process will
-//  // still have a positive number of entries.
-//  const Tpetra::global_size_t numGlobalEntries = 2;//comm->getSize () * 5;
-//  const global_ordinal_type indexBase = 0;
+//    int NumMyElements = A.getMap()->getNodeNumElements();           // Number of local elements
+//    auto *MyGlobalElements = A.getMap()->getMyGlobalIndices();// Global index of local elements
+//    int NumGlobalElements = A.getMap()->getGlobalNumElements();   // Number of global elements
 //
-//  // Construct a Map that puts the same number of equations on each
-//  // MPI process.
-//
-////  numGlobalEntries = 2;
-//  global_ordinal_type list[2] = {0, 1};
-//
-//  RCP<const map_type> contigMap =
-//    rcp (new map_type (numGlobalEntries, list, numGlobalEntries, indexBase, comm));
-//
-////  RCP<const map_type> contigMap =
-////    rcp (new map_type (numGlobalEntries, indexBase, comm));
-//
-////  const global_size_t numGlobalElements,
-////           const GlobalOrdinal indexList[],
-////           const LocalOrdinal indexListSize,
-////           const GlobalOrdinal indexBase,
-////           const Teuchos::RCP<const Teuchos::Comm<int> >& comm
-//
-//  vector_type x (contigMap);
-//
-//  x.putScalar (42.0);
-//}
-////
-//// The same main() driver routine as in the first Tpetra lesson.
-////
-//int
-//main (int argc, char *argv[])
-//{
-//  MPI_Init(&argc, &argv);
-//  {
-//    auto comm = Tpetra::getDefaultComm ();
-//    exampleRoutine (comm, std::cout);
-//    // Tell the Trilinos test framework that the test passed.
-//    if (comm->getRank () == 0) {
-//      std::cout << "End Result: TEST PASSED" << std::endl;
-//    }
-//  }
-//  MPI_Finalize();
-//  return 0;
-//}
-
-//void AssembleMatrixGlob(int dimension, SpMap *Map, int _nx, int _ny, int _nz, SpMatrix *A) {
-//
-//    int NumMyElements = A->getMap().NumMyElements();           // Number of local elements
-//    int *MyGlobalElements = A->getMap().MyGlobalElements();    // Global index of local elements
-//    int NumGlobalElements = A->getMap().NumGlobalElements();   // Number of global elements
-//
-//    std::vector<double> Values(dimension + 1);
-//    std::vector<int> Indices(dimension + 1);
+////    std::vector<double> Values(dimension + 1);
+////    std::vector<int> Indices(dimension + 1);
+//    double *Values = new double[dimension + 1];             // Array of values in a row (excluding diagonal)
+//    int *Indices = new int[dimension + 1];                  // Array of column indices (excluding diagonal)
+////    double Values[dimension + 1];
+////    int Indices[dimension + 1];
 //    _neighb weights;
 //
 //    int nynz = _ny * _nz;
+//
+////    std::cout << MyGlobalElements << "\n";
 //
 //    for(int i = 0; i < NumMyElements; ++i) {
 //
@@ -288,15 +221,20 @@ void BuildCoefficients(int i, int _ny, int _nz, int *MyGlobalElements, int NumGl
 //            ++NumEntries;
 //        }
 //
+////        void insertGlobalValues(int, int, const double *, const int *)
 //        // Put in off-diagonal entries
-//        A->InsertGlobalValues(MyGlobalElements[i], NumEntries, Values.data(), Indices.data());
+////        A->insertGlobalValues(MyGlobalElements[i], NumEntries, Values.data(), Indices.data());
+//        A.insertGlobalValues(MyGlobalElements[i], NumEntries, Values, Indices);
 //    }
 //
-//    Values.clear();
-//    Indices.clear();
+//    delete [] Values;
+//    delete [] Indices;
 //
-//    A->FillComplete();
-//}
+////    Values.clear();
+////    Indices.clear();
+//
+//    A.fillComplete();
+}
 
 int main(int argc, char** argv) {
 
@@ -365,9 +303,9 @@ int main(int argc, char** argv) {
         Teuchos::RCP<SpMatrix> A(new SpMatrix (myMap, dimension+1));
 
         time1 = MPI_Wtime();
-    //    AssembleMatrixGlob(dimension, myMap, _nx, _ny, _nz, A);
+//        AssembleMatrixGlob(dimension, _nx, _ny, _nz, *A);
         slv_mpi::Poisson poisson;
-        poisson.AssemblePoisson(*A, _nx, _ny, _nz);
+        poisson.AssemblePoisson(*A, comm, _nx, _ny, _nz);
         time2 = MPI_Wtime();
         MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
         MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
@@ -375,7 +313,6 @@ int main(int argc, char** argv) {
             full = max_time - min_time;
             std::cout << "Assembly time: " << full << std::endl;
         }
-
 
         /*
          * Create vectors for Unknowns and RHS
@@ -393,7 +330,7 @@ int main(int argc, char** argv) {
         // create a parameter list for ML options
 
         slv_mpi::AMG amg;
-        slv_mpi::CG solver(*comm->getRawMpiComm());
+        slv_mpi::BiCGSTAB2 solver(*comm->getRawMpiComm());
 
         std::string solverOptionsFile = "amg.xml";
         Teuchos::ParameterList mueluParams;
@@ -403,40 +340,38 @@ int main(int argc, char** argv) {
         time1 = MPI_Wtime();
         typedef Tpetra::Operator<double, int, int, KokkosClassic::DefaultNode::DefaultNodeType> operator_type;
         amg.Coarse((Teuchos::RCP<operator_type>)A);
-//        time2 = MPI_Wtime();
-//
-//        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
-//        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
-//        if (myRank == 0) {
-//            full = max_time - min_time;
-//            std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
-//        }
-//
-//        solver.SetStopCriteria(RNORM);
-//        solver.SetMaxIter(100);
-//        solver.SetTolerance(1e-8);
-//        solver.PrintHistory(true, 1);
-//
-//        time1 = MPI_Wtime();
-////        solver.solve(amg, *A, x, b, x);
+        time2 = MPI_Wtime();
+
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (myRank == 0) {
+            full = max_time - min_time;
+            std::cout << "Coarsening time: (" << numProcs << ") " << full << std::endl;
+        }
+
+        solver.SetStopCriteria(RNORM);
+        solver.SetMaxIter(100);
+        solver.SetTolerance(1e-8);
+        solver.PrintHistory(true, 1);
+
+        time1 = MPI_Wtime();
+        solver.solve(amg, *A, x, b, x);
 //        solver.solve(*A, x, b, x);
-//        time2 = MPI_Wtime();
-//
-//        amg.Destroy();
-//
-//        /* time2 */
-//        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
-//        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
-//        if (myRank == 0) {
-//            full = max_time - min_time;
-//            std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
-//        }
+        time2 = MPI_Wtime();
+
+        amg.Destroy();
+
+        /* time2 */
+        MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, *comm->getRawMpiComm());
+        MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, *comm->getRawMpiComm());
+        if (myRank == 0) {
+            full = max_time - min_time;
+            std::cout << "Solving time: (" << numProcs << ") " << full << std::endl;
+        }
     }
-#ifdef HAVE_MPI
     // Since you called MPI_Init, you are responsible for calling
     // MPI_Finalize after you are done using MPI.
-    (void)MPI_Finalize();
-#endif // HAVE_MPI
+    MPI_Finalize();
 
     return 0;
 }
