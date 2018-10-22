@@ -11,6 +11,7 @@
 #include <sys/time.h>
 
 namespace slv {
+
 /*!
  * \returns real time (used for debugging).
  *
