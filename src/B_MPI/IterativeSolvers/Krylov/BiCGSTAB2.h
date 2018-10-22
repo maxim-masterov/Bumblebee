@@ -71,21 +71,64 @@ namespace slv_mpi {
  * std::cout << "Residual: " << bicgstab.Residual() << std::endl;
  * \endcode
  */
+template <class MatrixType, class VectorType>
 class BiCGSTAB2: public Base {
 
+    VectorType *r;
+    VectorType *r_hat_0;
+    VectorType *u;
+    VectorType *v;
+    VectorType *s;
+    VectorType *w;
+    VectorType *t;
+    VectorType *u_hat;
+    VectorType *r_hat;
+    VectorType *v_hat;
+    VectorType *s_hat;
+    VectorType *tmp;
+    bool reallocate;
+    bool allocated;
 public:
 
-    BiCGSTAB2(MPI_Comm _comm) :
+    BiCGSTAB2(MPI_Comm _comm, bool _reallocate = false) :
         Base(_comm) {
+
+        reallocate = _reallocate;
+        allocated = false;
+
+        r = nullptr;
+        r_hat_0 = nullptr;
+        u = nullptr;
+        v = nullptr;
+        s = nullptr;
+        w = nullptr;
+        t = nullptr;
+        u_hat = nullptr;
+        r_hat = nullptr;
+        v_hat = nullptr;
+        s_hat = nullptr;
+        tmp = nullptr;
     }
-    ;
 
     ~BiCGSTAB2() {
+        if (!reallocate) {
+            if (r != nullptr) delete r;
+            if (r_hat_0 != nullptr) delete r_hat_0;
+            if (u != nullptr) delete u;
+            if (v != nullptr) delete v;
+            if (s != nullptr) delete s;
+            if (w != nullptr) delete w;
+            if (t != nullptr) delete t;
+            if (u_hat != nullptr) delete u_hat;
+            if (r_hat != nullptr) delete r_hat;
+            if (v_hat != nullptr) delete v_hat;
+            if (s_hat != nullptr) delete s_hat;
+            if (tmp != nullptr) delete tmp;
+        }
     }
-    ;
 
     /*!
-     * \brief Conjugate Gradient method
+     * \brief Hybrid BiConjugate Gradient Stabilized method
      *
      * \par For developers
      * Method contains:
@@ -100,7 +143,6 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class MatrixType, class VectorType>
     void solve(
                 MatrixType &Matrix,
                 VectorType &x,
@@ -108,7 +150,7 @@ public:
                 VectorType &x0);
 
     /*!
-     * \brief Preconditioned Conjugate Gradient method
+     * \brief Preconditioned Hybrid BiConjugate Gradient Stabilized method
      *
      * Preconditioned BiConjugate Gradient Stabilized (2) method uses right-preconditioned form, i.e.
      *                  \f{eqnarray*}{ A M^{-1} y =  b, \\ x = M^{-1} y \f}
@@ -127,7 +169,7 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class Preco, class MatrixType, class VectorType>
+    template<class Preco>
     void solve(
                 Preco &precond,
                 MatrixType &Matrix,
@@ -136,8 +178,8 @@ public:
                 VectorType &x0);
 };
 
-template<class MatrixType, class VectorType>
-void BiCGSTAB2::solve(
+template <class MatrixType, class VectorType>
+void BiCGSTAB2<MatrixType, VectorType>::solve(
                     MatrixType &Matrix,
                     VectorType &x,
                     VectorType &b,
@@ -167,22 +209,27 @@ void BiCGSTAB2::solve(
     const Epetra_BlockMap _Map = x.Map();
     int size = _Map.NumMyElements();    // local system size
 
-    VectorType r(_Map);
-    VectorType r_hat_0(_Map);
-    VectorType u(_Map);
-    VectorType v(_Map);
-    VectorType s(_Map);
-    VectorType w(_Map);
-    VectorType t(_Map);
+    if (!allocated || reallocate) {
+        r = new VectorType(_Map);
+        r_hat_0 = new VectorType(_Map);
+        u = new VectorType(_Map);
+        v = new VectorType(_Map);
+        s = new VectorType(_Map);
+        w = new VectorType(_Map);
+        t = new VectorType(_Map);
+        allocated = true;
+    }
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-    Matrix.Multiply(false, x0, v);
-    r = b;
-    r.Update(-1., v, 1.);
-    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
+    Matrix.Multiply(false, x0, *v);
+//    r = b;
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    r->Update(-1., *v, 1.);
+//    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
+    wrp_mpi::Copy(r_hat_0->Values(), r->Values(), size);
 
     //! (1) \f$ u = 0 \f$, \f$ \alpha = \rho[0] = \omega_2 = 1\f$
-    wrp_mpi::Zero(u.Values(), size);
+    wrp_mpi::Zero(u->Values(), size);
     alpha   = 0.;
     rho[0]  = 1.;
     omega_2 = 1.;
@@ -195,7 +242,7 @@ void BiCGSTAB2::solve(
             normalizer = 1.;
             break;
         case RRNORM: case INTERN:
-            normalizer = wrp_mpi::Norm2(r.Values(), size, communicator);
+            normalizer = wrp_mpi::Norm2(r->Values(), size, communicator);
             break;
         case RBNORM:
             normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
@@ -211,7 +258,7 @@ void BiCGSTAB2::solve(
     /*
      * Check residual. Stop if initial guess satisfies convergence criteria.
      */
-    convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator) / normalizer;
+    convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator) / normalizer;
     if (convergence_check < eps) {
         if ( ifprint && !(k % print_each) ) {
             if (myRank == 0)
@@ -227,6 +274,8 @@ void BiCGSTAB2::solve(
         std::cout << k << '\t' << convergence_check/normalizer << std::endl;
     }
     ++k;
+
+//    std::cout << wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator) << "\n";
 
     //! Start iterative loop
     while(1) {
@@ -246,7 +295,7 @@ void BiCGSTAB2::solve(
          * Even Bi-CG step
          */
         //! (3) \f$ \rho[1] = <\hat{r}_0, r>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-        rho[1] = wrp_mpi::Dot(r_hat_0.Values(), r.Values(), size, communicator);
+        rho[1] = wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
         if (rho[0] == 0.0) {
@@ -256,13 +305,18 @@ void BiCGSTAB2::solve(
         }
 
         //! (4) \f$ u = r - \beta u \f$
-        wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
+        wrp_mpi::Update(u->Values(), r->Values(), -beta, 1., size);
 
         //! (5) \f$ v = A u \f$
-        Matrix.Multiply(false, u, v);
+        Matrix.Multiply(false, *u, *v);
 
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = wrp_mpi::Dot(v.Values(), r_hat_0.Values(), size, communicator);
+        gamma = wrp_mpi::Dot(v->Values(), r_hat_0->Values(), size, communicator);
+
+//        std::cout << "alpha: " << alpha << "\n";
+//        std::cout << "rho[0]: " << rho[0] << "\n";
+//        std::cout << "beta: " << beta << "\n";
+//        std::cout << "gamma: " << gamma << "\n";
 
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
@@ -274,29 +328,31 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (7) \f$ r = r - \alpha v \f$
-        wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
+        wrp_mpi::Update(r->Values(), v->Values(), 1., -alpha, size);
 
         //! (8) \f$ s = A r \f$
-        Matrix.Multiply(false, r, s);
+        Matrix.Multiply(false, *r, *s);
 
         //! (9) \f$ x = x + \alpha u \f$
-        wrp_mpi::Update(x.Values(), u.Values(), 1., alpha, size);
+        wrp_mpi::Update(x.Values(), u->Values(), 1., alpha, size);
         /*!
          * Odd Bi-CG step
          */
         //! (10) \f$ \rho[1] = <\hat{r}_0, s>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-        rho[1] = wrp_mpi::Dot(r_hat_0.Values(), s.Values(), size, communicator);
+        rho[1] = wrp_mpi::Dot(r_hat_0->Values(), s->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
 
+//        std::cout << rho[0] << " " << rho[1] << " " << beta << "\n";
+
         //! (11) \f$ v = s - \beta v \f$
-        wrp_mpi::Update(v.Values(), s.Values(), -beta, 1., size);
+        wrp_mpi::Update(v->Values(), s->Values(), -beta, 1., size);
 
         //! (12) \f$ w = A v \f$
-        Matrix.Multiply(false, v, w);
+        Matrix.Multiply(false, *v, *w);
 
         //! (13) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = wrp_mpi::Dot(w.Values(), r_hat_0.Values(), size, communicator);
+        gamma = wrp_mpi::Dot(w->Values(), r_hat_0->Values(), size, communicator);
 
         // Check for breakdown (may occur if matrix is diagonal)
         if (gamma == 0.0) {
@@ -308,28 +364,27 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (14) \f$ u = r - \beta u \f$
-        wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
+        wrp_mpi::Update(u->Values(), r->Values(), -beta, 1., size);
 
         //! (15) \f$ r = r - \alpha v \f$
-        wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
+        wrp_mpi::Update(r->Values(), v->Values(), 1., -alpha, size);
 
         //! (16) \f$ s = s - \alpha w\f$
-        wrp_mpi::Update(s.Values(), w.Values(), 1., -alpha, size);
+        wrp_mpi::Update(s->Values(), w->Values(), 1., -alpha, size);
 
         //! (17) \f$ t = A s\f$
-        Matrix.Multiply(false, s, t);
+        Matrix.Multiply(false, *s, *t);
 
         /*!
          * GCR(2)-part
          */
         //! (18) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (19) \f$ \omega_2 = <r, t> \f$
-        reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
-        reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
-        reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
-        reduced_g[3] = wrp_mpi::DotLocal(t.Values(), t.Values(), size, communicator);
-        reduced_g[4] = wrp_mpi::DotLocal(r.Values(), t.Values(), size, communicator);
-
+        reduced_g[0] = wrp_mpi::DotLocal(r->Values(), s->Values(), size, communicator);
+        reduced_g[1] = wrp_mpi::DotLocal(s->Values(), s->Values(), size, communicator);
+        reduced_g[2] = wrp_mpi::DotLocal(s->Values(), t->Values(), size, communicator);
+        reduced_g[3] = wrp_mpi::DotLocal(t->Values(), t->Values(), size, communicator);
+        reduced_g[4] = wrp_mpi::DotLocal(r->Values(), t->Values(), size, communicator);
         MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
 
         omega_1 = reduced_l[0];
@@ -337,6 +392,8 @@ void BiCGSTAB2::solve(
         nu = reduced_l[2];
         tau = reduced_l[3];
         omega_2 = reduced_l[4];
+
+//        std::cout << omega_1 << " " << omega_2 << " " << mu << " " << nu << " " << tau << " \n";
 
         if (mu == 0.0) {
             if (myRank == 0)
@@ -360,17 +417,17 @@ void BiCGSTAB2::solve(
         omega_1 = (omega_1 - nu * omega_2) / mu;
 
         //! (23) \f$ x = x + \omega_1 r + \omega_2 s + \alpha u \f$
-        wrp_mpi::Update(x.Values(), r.Values(), s.Values(), u.Values(), 1.,
+        wrp_mpi::Update(x.Values(), r->Values(), s->Values(), u->Values(), 1.,
                 static_cast<double>(omega_1), static_cast<double>(omega_2), alpha, size);
 
         //! (24) \f$ r = r - \omega_1 s - \omega_2 t \f$
-        wrp_mpi::Update(r.Values(), s.Values(), t.Values(), 1., static_cast<double>(-omega_1),
+        wrp_mpi::Update(r->Values(), s->Values(), t->Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         /*!
          * Check convergence
          */
-        convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator) / normalizer;
+        convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator) / normalizer;
 
         if ( ifprint && !(k % print_each) ) {
             if (myRank == 0)
@@ -399,7 +456,7 @@ void BiCGSTAB2::solve(
         }
 
         //! (25) \f$ u = u - \omega_1 v - \omega_2 w \f$
-        wrp_mpi::Update(u.Values(), v.Values(), w.Values(), 1., static_cast<double>(-omega_1),
+        wrp_mpi::Update(u->Values(), v->Values(), w->Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         ++k;
@@ -410,10 +467,21 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
+
+    if (reallocate) {
+        delete r;
+        delete r_hat_0;
+        delete u;
+        delete v;
+        delete s;
+        delete w;
+        delete t;
+    }
 }
 
-template<class Preco, class MatrixType, class VectorType>
-void BiCGSTAB2::solve(
+template <class MatrixType, class VectorType>
+template <class Preco>
+void BiCGSTAB2<MatrixType, VectorType>::solve(
                     Preco &precond,
                     MatrixType &Matrix,
                     VectorType &x,
@@ -462,34 +530,39 @@ void BiCGSTAB2::solve(
         return;
     }
 
-    VectorType r(_Map);
-    VectorType r_hat_0(_Map);
-    VectorType u(_Map);
-    VectorType v(_Map);
-    VectorType s(_Map);
-    VectorType w(_Map);
-    VectorType t(_Map);
-    VectorType u_hat(_Map);
-    VectorType r_hat(_Map);
-    VectorType v_hat(_Map);
-    VectorType s_hat(_Map);
-    VectorType tmp(_Map);
+    if (!allocated || reallocate) {
+        r = new VectorType(_Map);
+        r_hat_0 = new VectorType(_Map);
+        u = new VectorType(_Map);
+        v = new VectorType(_Map);
+        s = new VectorType(_Map);
+        w = new VectorType(_Map);
+        t = new VectorType(_Map);
+        u_hat = new VectorType(_Map);
+        r_hat = new VectorType(_Map);
+        v_hat = new VectorType(_Map);
+        s_hat = new VectorType(_Map);
+        tmp = new VectorType(_Map);
+        allocated = true;
+    }
 
     // Right preconditioner
-    precond.solve(Matrix, tmp, x0, false);
-    x0 = tmp;
+    precond.solve(Matrix, *tmp, x0, false);
+//    x0 = tmp;
+    wrp_mpi::Copy(x0.Values(), tmp->Values(), size);
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
 //    r = (b - Matrix * x0);
-    Matrix.Multiply(false, x0, v);
-    r = b;
-    r.Update(-1., v, 1.);
-    wrp_mpi::Copy(r_hat_0.Values(), r.Values(), size);            // Actually r_hat_0 is an arbitrary vector
+    Matrix.Multiply(false, x0, *v);
+//    r = b;
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    r->Update(-1., *v, 1.);
+    wrp_mpi::Copy(r_hat_0->Values(), r->Values(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ w = 0 \f$, \f$ v = 0 \f$, \f$ \alpha = \rho[0] = \omega_1 = \omega_2 = 1\f$
-    wrp_mpi::Assign(u.Values(), 0.0, size);
-    wrp_mpi::Assign(w.Values(), 0.0, size);
-    wrp_mpi::Assign(v.Values(), 0.0, size);
+    wrp_mpi::Assign(u->Values(), 0.0, size);
+    wrp_mpi::Assign(w->Values(), 0.0, size);
+    wrp_mpi::Assign(v->Values(), 0.0, size);
     alpha = rho[0] = omega_1 = omega_2 = 1.;
 
     //! (2) Solve \f$ M y = r \f$, set \f$ r = y \f$
@@ -497,7 +570,7 @@ void BiCGSTAB2::solve(
 //      precond.solve(Matrix, tmp, r, false);
 //      r = tmp;
 
-    r_norm_0 = wrp_mpi::Norm2(r.Values(), size, communicator);
+    r_norm_0 = wrp_mpi::Norm2(r->Values(), size, communicator);
 
     /*!
      * Prepare stop criteria
@@ -568,7 +641,7 @@ void BiCGSTAB2::solve(
          * Even Bi-CG step
          */
         //! (4) \f$ \rho[1] = <\hat{r}_0, r>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-        rho[1] = wrp_mpi::Dot(r_hat_0.Values(), r.Values(), size, communicator);
+        rho[1] = wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
         if (rho[0] == 0.0) {
@@ -578,11 +651,11 @@ void BiCGSTAB2::solve(
         }
 
         //! (5) \f$ u = r - \beta u \f$
-        wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
+        wrp_mpi::Update(u->Values(), r->Values(), -beta, 1., size);
 
         //! (6) \f$ v = A M^{-1} u \f$
-        precond.solve(Matrix, tmp, u, false);
-        Matrix.Multiply(false, tmp, v);
+        precond.solve(Matrix, *tmp, *u, false);
+        Matrix.Multiply(false, *tmp, *v);
 
         // Case of left preconditioner
 //          //! (6) \f$ v = M^{-1} A u \f$
@@ -590,7 +663,15 @@ void BiCGSTAB2::solve(
 //          precond.solve(Matrix, v, tmp, false);
 
         //! (7) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = wrp_mpi::Dot(v.Values(), r_hat_0.Values(), size, communicator);
+        gamma = wrp_mpi::Dot(v->Values(), r_hat_0->Values(), size, communicator);
+
+        std::cout << "\n";
+        std::cout << "omega_1: " << omega_1 << "\n";
+        std::cout << "omega_2: " << omega_2 << "\n";
+        std::cout << "rho[0]: " << rho[0] << "\n";
+        std::cout << "alpha: " << alpha << "\n";
+        std::cout << "beta: " << beta << "\n";
+        std::cout << "gamma: " << gamma << "\n\n";
 
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
@@ -602,11 +683,11 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (8) \f$ r = r - \alpha v \f$
-        wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
+        wrp_mpi::Update(r->Values(), v->Values(), 1., -alpha, size);
 
         //! (9) \f$ s = A M^{-1} r \f$
-        precond.solve(Matrix, tmp, r, false);
-        Matrix.Multiply(false, tmp, s);
+        precond.solve(Matrix, *tmp, *r, false);
+        Matrix.Multiply(false, *tmp, *s);
 
         // Case of left preconditioner
 //          //! (9) \f$ s = M^{-1} A r \f$
@@ -614,23 +695,28 @@ void BiCGSTAB2::solve(
 //          precond.solve(Matrix, s, tmp, false);
 
         //! (10) \f$ x = x + \alpha u \f$
-        wrp_mpi::Update(x.Values(), u.Values(), 1., alpha, size);
+        wrp_mpi::Update(x.Values(), u->Values(), 1., alpha, size);
 
         /*!
          * Odd Bi-CG step
          */
         //! (11) \f$ \rho[1] = <\hat{r}_0, s>\f$, \f$ \beta = \alpha \rho[1] / \rho[0] \f$, \f$ \rho[0] = \rho[1] \f$
-        rho[1] = wrp_mpi::Dot(r_hat_0.Values(), s.Values(), size, communicator);
+        rho[1] = wrp_mpi::Dot(r_hat_0->Values(), s->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
 
+        std::cout << "rho[0]: " << rho[0] << "\n";
+        std::cout << "alpha: " << alpha << "\n";
+        std::cout << "beta: " << beta << "\n";
+        std::cout << "gamma: " << gamma << "\n\n";
+
         //! (12) \f$ v = s - \beta v \f$
 //          v = s - beta * v;
-        wrp_mpi::Update(v.Values(), s.Values(), -beta, 1., size);
+        wrp_mpi::Update(v->Values(), s->Values(), -beta, 1., size);
 
         //! (13) \f$ w = A M^{-1} v \f$
-        precond.solve(Matrix, tmp, v, false);
-        Matrix.Multiply(false, tmp, w);
+        precond.solve(Matrix, *tmp, *v, false);
+        Matrix.Multiply(false, *tmp, *w);
 
         // Case of left preconditioner
 //          //! (13) \f$ w = M^{-1} A v \f$
@@ -638,7 +724,7 @@ void BiCGSTAB2::solve(
 //          precond.solve(Matrix, w, tmp, false);
 
         //! (14) \f$ \gamma = <w, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
-        gamma = wrp_mpi::Dot(w.Values(), r_hat_0.Values(), size, communicator);
+        gamma = wrp_mpi::Dot(w->Values(), r_hat_0->Values(), size, communicator);
 
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
@@ -650,17 +736,17 @@ void BiCGSTAB2::solve(
         alpha = rho[0] / gamma;
 
         //! (15) \f$ u = r - \beta u \f$
-        wrp_mpi::Update(u.Values(), r.Values(), -beta, 1., size);
+        wrp_mpi::Update(u->Values(), r->Values(), -beta, 1., size);
 
         //! (16) \f$ r = r - \alpha v \f$
-        wrp_mpi::Update(r.Values(), v.Values(), 1., -alpha, size);
+        wrp_mpi::Update(r->Values(), v->Values(), 1., -alpha, size);
 
         //! (17) \f$ s = s - \alpha w\f$
-        wrp_mpi::Update(s.Values(), w.Values(), 1., -alpha, size);
+        wrp_mpi::Update(s->Values(), w->Values(), 1., -alpha, size);
 
         //! (18) \f$ t = A M^{-1} s\f$
-        precond.solve(Matrix, tmp, s, false);
-        Matrix.Multiply(false, tmp, t);
+        precond.solve(Matrix, *tmp, *s, false);
+        Matrix.Multiply(false, *tmp, *t);
 
         // Case of left preconditioner
 //          //! (18) \f$ t = M^{-1} A s\f$
@@ -672,11 +758,11 @@ void BiCGSTAB2::solve(
          */
         //! (19) \f$ \omega_1 = <r, s> \f$, \f$ \mu = <s, s> \f$, \f$ \nu = <s, t> \f$, \f$ \tau = <t, t> \f$
         //! (20) \f$ \omega_2 = <r, t> \f$
-        reduced_g[0] = wrp_mpi::DotLocal(r.Values(), s.Values(), size, communicator);
-        reduced_g[1] = wrp_mpi::DotLocal(s.Values(), s.Values(), size, communicator);
-        reduced_g[2] = wrp_mpi::DotLocal(s.Values(), t.Values(), size, communicator);
-        reduced_g[3] = wrp_mpi::DotLocal(t.Values(), t.Values(), size, communicator);
-        reduced_g[4] = wrp_mpi::DotLocal(r.Values(), t.Values(), size, communicator);
+        reduced_g[0] = wrp_mpi::DotLocal(r->Values(), s->Values(), size, communicator);
+        reduced_g[1] = wrp_mpi::DotLocal(s->Values(), s->Values(), size, communicator);
+        reduced_g[2] = wrp_mpi::DotLocal(s->Values(), t->Values(), size, communicator);
+        reduced_g[3] = wrp_mpi::DotLocal(t->Values(), t->Values(), size, communicator);
+        reduced_g[4] = wrp_mpi::DotLocal(r->Values(), t->Values(), size, communicator);
 
         MPI_Allreduce(&reduced_g, &reduced_l, 5, MPI_LONG_DOUBLE, MPI_SUM, communicator);
 
@@ -708,11 +794,11 @@ void BiCGSTAB2::solve(
         omega_1 = (omega_1 - nu * omega_2) / mu;
 
         //! (24) \f$ x = x + \omega_1 r + \omega_2 s + \alpha u \f$
-        wrp_mpi::Update(x.Values(), r.Values(), s.Values(), u.Values(), 1.,
+        wrp_mpi::Update(x.Values(), r->Values(), s->Values(), u->Values(), 1.,
                 static_cast<double>(omega_1), static_cast<double>(omega_2), alpha, size);
 
         //! (25) \f$ r = r - \omega_1 s - \omega_2 t \f$
-        wrp_mpi::Update(r.Values(), s.Values(), t.Values(), 1., static_cast<double>(-omega_1),
+        wrp_mpi::Update(r->Values(), s->Values(), t->Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         /*!
@@ -723,7 +809,7 @@ void BiCGSTAB2::solve(
 //          precond.solve(Matrix, tmp, r, false);
 //          convergence_check = tmp.norm() / normalizer;
 
-        convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator) / normalizer;
+        convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator) / normalizer;
         if ( ifprint && !(k % print_each) ) {
             if (myRank == 0)
                 std::cout << k << '\t' << convergence_check << std::endl;
@@ -751,7 +837,7 @@ void BiCGSTAB2::solve(
         }
 
         //! (25) \f$ u = u - \omega_1 v - \omega_2 w \f$
-        wrp_mpi::Update(u.Values(), v.Values(), w.Values(), 1., static_cast<double>(-omega_1),
+        wrp_mpi::Update(u->Values(), v->Values(), w->Values(), 1., static_cast<double>(-omega_1),
                 static_cast<double>(-omega_2), size);
 
         ++k;
@@ -765,8 +851,8 @@ void BiCGSTAB2::solve(
 //    }
 //
 //    time1 = MPI_Wtime();
-    precond.solve(Matrix, tmp, x, false);
-    wrp_mpi::Copy(x.Values(), tmp.Values(), size);
+    precond.solve(Matrix, *tmp, x, false);
+    wrp_mpi::Copy(x.Values(), tmp->Values(), size);
 
     if ( ifprint && ((k-1) % print_each) ) {
         if (myRank == 0)
@@ -774,6 +860,21 @@ void BiCGSTAB2::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
+
+    if (reallocate) {
+        delete r;
+        delete r_hat_0;
+        delete u;
+        delete v;
+        delete s;
+        delete w;
+        delete t;
+        delete u_hat;
+        delete r_hat;
+        delete v_hat;
+        delete s_hat;
+        delete tmp;
+    }
 
 //    time2 = MPI_Wtime();
 //    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
