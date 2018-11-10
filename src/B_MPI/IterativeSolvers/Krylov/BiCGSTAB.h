@@ -199,6 +199,14 @@ void BiCGSTAB<MatrixType, VectorType>::solve(
         allocated = true;
     }
 
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat_0->Values(), 0., size);
+    wrp_mpi::Assign(p->Values(), 0., size);
+    wrp_mpi::Assign(s->Values(), 0., size);
+    wrp_mpi::Assign(v->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
+
     //! (1) \f$ p_0 = r_0 = \hat{r}_0 = b - A * x_0 \f$
     Matrix.Multiply(false, x0, *v);
     wrp_mpi::Copy(r->Values(), b.Values(), size);
@@ -434,6 +442,15 @@ void BiCGSTAB<MatrixType, VectorType>::solve(
         p_hat = new VectorType(_Map);
         allocated = true;
     }
+
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat_0->Values(), 0., size);
+    wrp_mpi::Assign(p->Values(), 0., size);
+    wrp_mpi::Assign(s->Values(), 0., size);
+    wrp_mpi::Assign(v->Values(), 0., size);
+    wrp_mpi::Assign(s_hat->Values(), 0., size);
+    wrp_mpi::Assign(p_hat->Values(), 0., size);
 
     //! (1) \f$ p_0 = r_0 = b - A x_0 \f$
     Matrix.Multiply(false, x0, *v);

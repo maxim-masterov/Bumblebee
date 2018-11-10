@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
     int _ny;
     int _nz;
     int NumGlobalElements;
+    int omp_nthreads = 1;
 
     if (argc > 1) {
         if (argc == 2) {
@@ -62,7 +63,10 @@ int main(int argc, char** argv) {
             _nx = atoi(argv[1]);
             _ny = atoi(argv[2]);
             _nz = atoi(argv[3]);
+#ifdef BUMBLEBEE_USE_OPENMP
             omp_set_num_threads(atoi(argv[4]));
+            omp_nthreads = omp_get_max_threads();
+#endif
         }
         else {
             std::cout << "Too many arguments..." << std::endl;
@@ -86,8 +90,10 @@ int main(int argc, char** argv) {
     double min_time, max_time;
     double time1, time2, full;
 
-    std::cout << myRank << " running with " << omp_get_max_threads() << " threads.\n" << std::endl;
-    if (myRank == 0) std::cout << "Problem size: " << NumGlobalElements << std::endl;
+    if (myRank == 0) {
+        std::cout << "Problem size: " << NumGlobalElements << std::endl;
+        std::cout << numProcs << " processes running with " << omp_nthreads << " threads each.\n" << std::endl;
+    }
 
     /*
      * Sparse matrix. 3 - is a guessed number of non-zeros per row
@@ -129,8 +135,8 @@ int main(int argc, char** argv) {
 
     double dx = 1./(_nx-1);
 //    b.PutScalar(1000. *dx * dx);
-    for(int n = 0; n < 1; ++n) {
-        b[n] = 1000. *dx * dx;
+    for(int n = 0, end = myMap->NumMyElements(); n < end; ++n) {
+        b[n] = 1000. * dx * dx;
         x[n] = 0.;
     }
 
@@ -143,9 +149,7 @@ int main(int argc, char** argv) {
     // create a parameter list for ML options
     Teuchos::ParameterList MLList;
     slv_mpi::AMG amg;
-//    slv_mpi::BiCG<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
-    slv_mpi::BiCGSTAB2<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
-//    slv_mpi::IBiCGSTAB2<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
+    slv_mpi::CG<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
     ML_Epetra::SetDefaults("DD",MLList);
 
     MLList.set("max levels",7);

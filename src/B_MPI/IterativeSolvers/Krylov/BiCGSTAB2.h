@@ -216,6 +216,15 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         allocated = true;
     }
 
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat_0->Values(), 0., size);
+    wrp_mpi::Assign(u->Values(), 0., size);
+    wrp_mpi::Assign(v->Values(), 0., size);
+    wrp_mpi::Assign(s->Values(), 0., size);
+    wrp_mpi::Assign(w->Values(), 0., size);
+    wrp_mpi::Assign(t->Values(), 0., size);
+
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
     Matrix.Multiply(false, x0, *v);
     wrp_mpi::Copy(r->Values(), b.Values(), size);
@@ -520,23 +529,19 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         allocated = true;
     }
 
-#ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for
-#endif
-    for(int n = 0; n < size; ++n) {
-        r->operator [](n) = 0.;
-        r_hat_0->operator [](n) = 0.;
-        u->operator [](n) = 0.;
-        v->operator [](n) = 0.;
-        s->operator [](n) = 0.;
-        w->operator [](n) = 0.;
-        t->operator [](n) = 0.;
-        u_hat->operator [](n) = 0.;
-        r_hat->operator [](n) = 0.;
-        v_hat->operator [](n) = 0.;
-        s_hat->operator [](n) = 0.;
-        tmp->operator [](n) = 0.;
-    }
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat_0->Values(), 0., size);
+    wrp_mpi::Assign(u->Values(), 0., size);
+    wrp_mpi::Assign(v->Values(), 0., size);
+    wrp_mpi::Assign(s->Values(), 0., size);
+    wrp_mpi::Assign(w->Values(), 0., size);
+    wrp_mpi::Assign(t->Values(), 0., size);
+    wrp_mpi::Assign(u_hat->Values(), 0., size);
+    wrp_mpi::Assign(r_hat->Values(), 0., size);
+    wrp_mpi::Assign(v_hat->Values(), 0., size);
+    wrp_mpi::Assign(s_hat->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
 
     // Right preconditioner
     precond.solve(Matrix, *tmp, x0, false);
@@ -645,14 +650,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         //! (7) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
         gamma = wrp_mpi::Dot(v->Values(), r_hat_0->Values(), size, communicator);
 
-        std::cout << "\n";
-        std::cout << "omega_1: " << omega_1 << "\n";
-        std::cout << "omega_2: " << omega_2 << "\n";
-        std::cout << "rho[0]: " << rho[0] << "\n";
-        std::cout << "alpha: " << alpha << "\n";
-        std::cout << "beta: " << beta << "\n";
-        std::cout << "gamma: " << gamma << "\n\n";
-
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
             if (myRank == 0)
@@ -684,11 +681,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         rho[1] = wrp_mpi::Dot(r_hat_0->Values(), s->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
-
-        std::cout << "rho[0]: " << rho[0] << "\n";
-        std::cout << "alpha: " << alpha << "\n";
-        std::cout << "beta: " << beta << "\n";
-        std::cout << "gamma: " << gamma << "\n\n";
 
         //! (12) \f$ v = s - \beta v \f$
         wrp_mpi::Update(v->Values(), s->Values(), -beta, 1., size);

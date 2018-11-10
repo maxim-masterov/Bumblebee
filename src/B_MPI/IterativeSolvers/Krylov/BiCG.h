@@ -68,7 +68,7 @@ template <class MatrixType, class VectorType>
 class BiCG: public Base {
 
     VectorType *r;
-    VectorType *r_hat_0;
+    VectorType *r_hat;
     VectorType *p;
     VectorType *z;
     VectorType *p_hat;
@@ -79,7 +79,7 @@ class BiCG: public Base {
 
     void FreeAll() {
         if (r != nullptr) {delete r; r = nullptr;}
-        if (r_hat_0 != nullptr) {delete r_hat_0; r_hat_0 = nullptr;}
+        if (r_hat != nullptr) {delete r_hat; r_hat = nullptr;}
         if (p != nullptr) {delete p; p = nullptr;}
         if (z != nullptr) {delete z; z = nullptr;}
         if (p_hat != nullptr) {delete p_hat; p_hat = nullptr;}
@@ -93,7 +93,7 @@ public:
         Base(_comm) {
 
         r = nullptr;
-        r_hat_0 = nullptr;
+        r_hat = nullptr;
         p = nullptr;
         z = nullptr;
         p_hat = nullptr;
@@ -196,21 +196,21 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
     const Epetra_BlockMap _Map = x.Map();
     int size = _Map.NumMyElements();        // system size
 
-    VectorType r(_Map);
-    VectorType r_hat(_Map);
-    VectorType p(_Map);
-    VectorType p_hat(_Map);
-
-    VectorType tmp(_Map);
-
     if (!allocated || reallocate) {
         r = new VectorType(_Map);
-        r_hat_0 = new VectorType(_Map);
+        r_hat = new VectorType(_Map);
         p = new VectorType(_Map);
         p_hat = new VectorType(_Map);
         tmp = new VectorType(_Map);
         allocated = true;
     }
+
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat->Values(), 0., size);
+    wrp_mpi::Assign(p->Values(), 0., size);
+    wrp_mpi::Assign(p_hat->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
 
     //! (1)	\f$ p_0 = r_0 = b - A x_0 \f$
     Matrix.Multiply(false, x0, *tmp);
@@ -226,8 +226,7 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
     wrp_mpi::Copy(p_hat->Values(), r_hat->Values(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-    convergence_check = wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator);
-    r_hat.Dot(r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r_hat->Values(), r->Values(), size, communicator);
     delta[1] = alpha = convergence_check;
 
     /*!
@@ -242,7 +241,7 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
             normalizer = sqrt(delta[1]);
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -280,8 +279,10 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
         }
 
         //! (2)	\f$ \alpha = <r, \hat{r}> / <\hat{p}, A p> \f$
-        Matrix.Multiply(false, p, tmp);
-        p_hat.Dot(tmp, &temp);                      // Note, this value can be very-very-very!!! small, e.g. 1e-33 O_o
+        Matrix.Multiply(false, *p, *tmp);
+
+        // Note, this value can be very-very-very!!! small, e.g. 1e-33 O_o
+        temp = wrp_mpi::Dot(p_hat->Values(), tmp->Values(), size, communicator);
 
         if (fabs(temp) <= LDBL_EPSILON) {
             if (myRank == 0)
@@ -291,20 +292,17 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
         alpha /= temp;
 
         //! (3)	\f$ x_{new} = x_{old} + \alpha p \f$
-        x.Update(alpha, p, 1.);
+        wrp_mpi::Update(x.Values(), p->Values(), 1., alpha, size);
 
         //! (4)	\f$ r_{new} = r_{old} - \alpha A p \f$
-        r.Update(-alpha, tmp, 1.);
-//        x.Update2(p, 1., static_cast<double>(alpha), r, tmp, 1., static_cast<double>(-alpha));
+        wrp_mpi::Update(r->Values(), tmp->Values(), 1., -alpha, size);
 
         //! (5)	\f$ \hat{r}_{new} = \hat{r}_{old} - \alpha A^T \hat{p} \f$
-        Matrix.Multiply(true, p_hat, tmp);
-        r_hat.Update(-alpha, tmp, 1.);
-//        r_hat.Update(tmp, 1., static_cast<double>(-alpha));
+        Matrix.Multiply(true, *p_hat, *tmp);
+        wrp_mpi::Update(r_hat->Values(), tmp->Values(), 1., -alpha, size);
 
         //! (6)	\f$ \beta = <r_{new}, \hat{r}_{new}> / <r_{old}, \hat{r}_{old}> \f$
-//        alpha = r.Dot(r_hat);
-        r_hat.Dot(r, &alpha);
+        alpha = wrp_mpi::Dot(r_hat->Values(), r->Values(), size, communicator);
         delta[0] = delta[1];
         delta[1] = alpha;
 
@@ -317,15 +315,12 @@ void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
         beta = static_cast<double>(delta[1] / delta[0]);
 
         //! (7)	\f$ p_{new} = r_{new} + \beta p_{old} \f$
-//        p.Update(r, beta, 1.);
-        p.Update(1., r, beta);
+        wrp_mpi::Update(p->Values(), r->Values(), beta, 1., size);
 
         //! (8)	\f$ \hat{p}_{new} = \hat{r}_{new} + \beta \hat{p}_{old} \f$
-//        p_hat.Update(r_hat, beta, 1.);
-        p_hat.Update(1., r_hat, beta);
+        wrp_mpi::Update(p_hat->Values(), r_hat->Values(), beta, 1., size);
 
-//        convergence_check = r.Norm2() / normalizer;
-        r.Norm2(&convergence_check);
+        convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator);
         convergence_check /= normalizer;
 
         /*!
@@ -410,26 +405,39 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
         return;
     }
 
-    VectorType r(_Map);
-    VectorType r_hat(_Map);
-    VectorType p(_Map);
-    VectorType p_hat(_Map);
-    VectorType z(_Map);
-    VectorType z_hat(_Map);
+    if (!allocated || reallocate) {
+        r = new VectorType(_Map);
+        r_hat = new VectorType(_Map);
+        p = new VectorType(_Map);
+        p_hat = new VectorType(_Map);
+        z = new VectorType(_Map);
+        z_hat = new VectorType(_Map);
+        tmp = new VectorType(_Map);
+        allocated = true;
+    }
 
-    VectorType tmp(_Map);
+    //To enforce "first touch"
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(r_hat->Values(), 0., size);
+    wrp_mpi::Assign(p->Values(), 0., size);
+    wrp_mpi::Assign(p_hat->Values(), 0., size);
+    wrp_mpi::Assign(z->Values(), 0., size);
+    wrp_mpi::Assign(z_hat->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
 
     //! (1)	\f$ r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
-    r = b;
-    r.Update(-1., tmp, 1.);
+    Matrix.Multiply(false, x0, *tmp);
+//    r = b;
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    r->Update(-1., *tmp, 1.);
 
     //! (2)	\f$ \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.Multiply(true, x0, tmp);
-    r_hat = b;
-    r_hat.Update(-1., tmp, 1.);
+    Matrix.Multiply(true, x0, *tmp);
+    wrp_mpi::Copy(r_hat->Values(), b.Values(), size);
+    r_hat->Update(-1., *tmp, 1.);
 
-    r_hat.Dot(r, &convergence_check);
+//    r_hat->Dot(*r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r_hat->Values(), r->Values(), size, communicator);
 
     /*!
      * Prepare stop criteria
@@ -443,7 +451,7 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
             normalizer = convergence_check;
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
+            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -483,10 +491,11 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
         /*!
          *  (3) Apply preconditioners \f$ M z = r \f$, \f$ M^T \hat{z} = \hat{r} \f$
          */
-        precond.solve(Matrix, z, r, true);
-        precond.solve(Matrix, z_hat, r_hat, true);
+        precond.solve(Matrix, *z, *r, true);
+        precond.solve(Matrix, *z_hat, *r_hat, true);
 
-        z.Dot(r_hat, &alpha);
+//        z->Dot(*r_hat, &alpha);
+        alpha = wrp_mpi::Dot(z->Values(), r_hat->Values(), size, communicator);
 
         if (alpha == 0) {
             if (myRank == 0) {
@@ -504,25 +513,22 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
             beta = static_cast<double>(delta[1] / delta[0]);
 
             //! (5)	\f$ p_{new} = r_{new} + \beta p_{old} \f$
-//            p.Update(z, beta, 1.);
-            p.Update(1., z, beta);
+            wrp_mpi::Update(p->Values(), z->Values(), beta, 1., size);
 
             //! (6)	\f$ \hat{p}_{new} = \hat{r}_{new} + \beta \hat{p}_{old} \f$
-//            p_hat.Update(z_hat, beta, 1.);
-            p_hat.Update(1., z_hat, beta);
+            wrp_mpi::Update(p_hat->Values(), z_hat->Values(), beta, 1., size);
         }
         //! Else set \f$ p = z \f$, \f$ \hat{p} = \hat{z} \f$, \f$ \delta_{new} = \delta_0 = <z, \hat{r}> \f$
         else {
             delta[1] = alpha;
             delta_0 = delta[1];
-            p = z;
-            p_hat = z_hat;
+            wrp_mpi::Copy(p->Values(), z->Values(), size);
+            wrp_mpi::Copy(p_hat->Values(), z_hat->Values(), size);
         }
 
         //! (7)	\f$ \alpha = <z, \hat{r}> / <\hat{p}, A p> \f$
-        Matrix.Multiply(false, p, tmp);
-//        temp = p_hat.Dot(tmp);
-        p_hat.Dot(tmp, &temp);
+        Matrix.Multiply(false, *p, *tmp);
+        temp = wrp_mpi::Dot(p_hat->Values(), tmp->Values(), size, communicator);
 
         if (fabs(temp) <= LDBL_EPSILON) {
             if (myRank == 0) {
@@ -534,19 +540,17 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
         alpha /= temp;
 
         //! (8)	\f$ x_{new} = x_{old} + \alpha p \f$
-        x.Update(alpha, p, 1.);
+        wrp_mpi::Update(x.Values(), p->Values(), 1., alpha, size);
 
         //! (9)	\f$ r_{new} = r_{old} - \alpha A p \f$
-        r.Update(-alpha, tmp, 1.);
-//        x.Update2(p, 1., static_cast<double>(alpha), r, tmp, 1., static_cast<double>(-alpha));
+        wrp_mpi::Update(r->Values(), tmp->Values(), 1., -alpha, size);
 
         //! (10)	\f$ \hat{r} = \hat{r}_{old} - \alpha A^T \hat{p} \f$
-        Matrix.Multiply(true, p_hat, tmp);
-//        r_hat.Update(tmp, 1., static_cast<double>(-alpha));
-        r_hat.Update(-alpha, tmp, 1.);
+        Matrix.Multiply(true, *p_hat, *tmp);
+        wrp_mpi::Update(r_hat->Values(), tmp->Values(), 1., -alpha, size);
 
         if (stop_criteria != INTERN) {
-            r.Norm2(&convergence_check);
+            convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator);
             convergence_check /= normalizer;
         }
         else
@@ -591,6 +595,10 @@ void BiCG<MatrixType, VectorType>::solve(Preco &precond,
     }
     iterations_num = k;
     residual_norm = convergence_check;
+
+    if (reallocate) {
+        FreeAll();
+    }
 }
 }
 

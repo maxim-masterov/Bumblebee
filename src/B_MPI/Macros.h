@@ -20,8 +20,12 @@
 #define IS_EVEN(x) (!(x & 1))
 #define IS_ODD(x) (x & 1)
 
-#define BUMBLEBEE_USE_OPENMP
-#define USE_MAGIC_POWDER
+// Compile with BUMBLEBEE_USE_OPENMP to switch on hybrid parallelization
+//#define BUMBLEBEE_USE_OPENMP
+
+// Compile with USE_MAGIC_POWDER to use buiil-in utilization of low-level intrinsics
+//#define USE_MAGIC_POWDER
+
 /*!
  * Type of convergence criteria
  */

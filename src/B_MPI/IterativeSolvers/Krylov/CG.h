@@ -63,15 +63,42 @@ namespace slv_mpi {
  * std::cout << "Residual: " << cg.Residual() << std::endl;
  * \endcode
  */
+template <class MatrixType, class VectorType>
 class CG: public Base {
+
+    VectorType *d;
+    VectorType *r;
+    VectorType *z;
+    VectorType *tmp;
+    bool reallocate;
+    bool allocated;
+
+    void FreeAll() {
+        if (d != nullptr) {delete d; d = nullptr;}
+        if (r != nullptr) {delete r; r = nullptr;}
+        if (z != nullptr) {delete z; z = nullptr;}
+        if (tmp != nullptr) {delete tmp; tmp = nullptr;}
+    }
 
 public:
 
-    CG(MPI_Comm _comm) :
+    CG(MPI_Comm _comm, bool _reallocate = false) :
         Base(_comm) {
+
+        d = nullptr;
+        r = nullptr;
+        z = nullptr;
+        tmp = nullptr;
+
+        reallocate = _reallocate;
+        allocated = false;
     }
 
     ~CG() {
+        if (!reallocate) {
+            FreeAll();
+            allocated = false;
+        }
     }
 
 
@@ -90,7 +117,6 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class MatrixType, class VectorType>
     void solve(
                 MatrixType &Matrix,
                 VectorType &x,
@@ -119,7 +145,7 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class Preco, class MatrixType, class VectorType>
+    template<class Preco>
     void solve(
                 Preco &precond,
                 MatrixType &Matrix,
@@ -129,7 +155,7 @@ public:
 };
 
 template<class MatrixType, class VectorType>
-void CG::solve(
+void CG<MatrixType, VectorType>::solve(
                 MatrixType &Matrix,
                 VectorType &x,
                 VectorType &b,
@@ -151,19 +177,26 @@ void CG::solve(
     const Epetra_BlockMap _Map = x.Map();
     int size = _Map.NumMyElements();
 
-    VectorType d(_Map);
-    VectorType r(_Map);
+    if (!allocated || reallocate) {
+        d = new VectorType(_Map);
+        r = new VectorType(_Map);
+        tmp = new VectorType(_Map);
+        allocated = true;
+    }
 
-    VectorType tmp(_Map);
+    //To enforce "first touch"
+    wrp_mpi::Assign(d->Values(), 0., size);
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
 
     //! (1)  \f$ d_0 = r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
-    r = b;
-    r.Update(-1., tmp, 1.);
-    d = r;
+    Matrix.Multiply(false, x0, *tmp);
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    wrp_mpi::Update(r->Values(), tmp->Values(), 1., -1., size);
+    wrp_mpi::Copy(d->Values(), r->Values(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-    r.Dot(r, &convergence_check);
+    convergence_check = wrp_mpi::Dot(r->Values(), r->Values(), size, communicator);
     delta[1] = alpha = convergence_check;
 
     /*!
@@ -214,19 +247,19 @@ void CG::solve(
         }
 
         //! (2) \f$ \alpha = <r, r> / <d, A d_{old}> \f$
-        wrp_mpi::Multiply(Matrix, d, tmp, false);
-        temp = wrp_mpi::Dot(d.Values(), tmp.Values(), size, communicator);
+        Matrix.Multiply(false, *d, *tmp);
+        temp = wrp_mpi::Dot(d->Values(), tmp->Values(), size, communicator);
         alpha /= temp;			// Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
         //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
         wrp_mpi::Update2(
-                x.Values(), d.Values(), 1., alpha,
-                r.Values(), tmp.Values(), 1., -alpha,
+                x.Values(), d->Values(), 1., alpha,
+                r->Values(), tmp->Values(), 1., -alpha,
                 size);
 
         //! (5)   \f$ \beta = <r_{new}, r_{new}> / <r_{old}, r_{old}> \f$
-        alpha = wrp_mpi::Dot(r.Values(), r.Values(), size, communicator);       // Possible break down if alpha == 0.0
+        alpha = wrp_mpi::Dot(r->Values(), r->Values(), size, communicator);       // Possible break down if alpha == 0.0
         delta[0] = delta[1];
         delta[1] = alpha;
 
@@ -250,7 +283,7 @@ void CG::solve(
         beta = delta[1] / delta[0];
 
         //! (6)  \f$ d_{new} = r_{new} + \beta d_{old} \f$
-        wrp_mpi::Update(d.Values(), r.Values(), beta, 1., size);
+        wrp_mpi::Update(d->Values(), r->Values(), beta, 1., size);
 
         /*
          * Check for convergence stalling
@@ -275,10 +308,15 @@ void CG::solve(
             std::cout << k - 1 << '\t' << convergence_check << std::endl;
     iterations_num = k;
     residual_norm = convergence_check;
+
+    if (reallocate) {
+        FreeAll();
+    }
 }
 
-template<class Preco, class MatrixType, class VectorType>
-void CG::solve(
+template<class MatrixType, class VectorType>
+template<class Preco>
+void CG<MatrixType, VectorType>::solve(
                 Preco &precond,
                 MatrixType &Matrix,
                 VectorType &x,
@@ -315,26 +353,34 @@ void CG::solve(
         return;
     }
 
-    VectorType d(_Map);
-    VectorType r(_Map);
-    VectorType z(_Map);
+    if (!allocated || reallocate) {
+        d = new VectorType(_Map);
+        r = new VectorType(_Map);
+        z = new VectorType(_Map);
+        tmp = new VectorType(_Map);
+        allocated = true;
+    }
 
-    VectorType tmp(_Map);
+    //To enforce "first touch"
+    wrp_mpi::Assign(d->Values(), 0., size);
+    wrp_mpi::Assign(r->Values(), 0., size);
+    wrp_mpi::Assign(z->Values(), 0., size);
+    wrp_mpi::Assign(tmp->Values(), 0., size);
 
     //! (1)	\f$ r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
-    r = b;
-    r.Update(-1., tmp, 1.);
-    d = r;
+    Matrix.Multiply(false, x0, *tmp);
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    wrp_mpi::Update(r->Values(), tmp->Values(), 1., -1., size);
 
     //! Apply preconditioner \f$ M z = r_0 \f$
-    precond.solve(Matrix, z, r, false);
+    precond.solve(Matrix, *z, *r, false);
     //! Set d_0 = z_0
-    d = z;
+    wrp_mpi::Copy(d->Values(), z->Values(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
-    r.Dot(r, &convergence_check);
-    delta[1] = alpha = convergence_check;
+    convergence_check = wrp_mpi::Dot(r->Values(), r->Values(), size, communicator);
+    alpha = wrp_mpi::Dot(r->Values(), z->Values(), size, communicator);
+    delta[1] = alpha;
 
     /*!
      * Prepare stop criteria
@@ -348,8 +394,7 @@ void CG::solve(
             normalizer = sqrt(convergence_check);
             break;
         case RBNORM:
-            b.Norm2(&normalizer);
-//            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
+            normalizer = wrp_mpi::Norm2(b.Values(), size, communicator);
             break;
         case RWNORM:
             normalizer = weight;
@@ -387,23 +432,21 @@ void CG::solve(
         }
 
         //! (2)	\f$ \alpha = <r, r> / <d, A d_{old}> \f$
-        Matrix.Multiply(false, d, tmp);
-        d.Dot(tmp, &temp);
-//        temp = wrp_mpi::Dot(d.Values(), tmp.Values(), size, communicator);
+        Matrix.Multiply(false, *d, *tmp);
+        temp = wrp_mpi::Dot(d->Values(), tmp->Values(), size, communicator);
         alpha /= temp;		            // Possible break down if temp == 0.0
 
         //! (3) \f$ x_{new} = x_{old} + \alpha d_{old} \f$
-        x.Update(alpha, d, 1.);
+        wrp_mpi::Update(x.Values(), d->Values(), 1, alpha, size);
 
         //! (4) \f$ r_{new} = r_{old} - \alpha A d_{old} \f$
-        r.Update(-alpha, tmp, 1.);
+        wrp_mpi::Update(r->Values(), tmp->Values(), 1., -alpha, size);
 
         //! Apply preconditioner \f$ M z = r_{new} \f$
-        precond.solve(Matrix, z, r, false);
+        precond.solve(Matrix, *z, *r, false);
 
         //! (5)	\f$ \delta_{new} = <r_{new}, r_{new}> \f$
-        r.Dot(z, &alpha);               // Possible break down if alpha == 0.0
-//        alpha = wrp_mpi::Dot(r.Values(), z.Values(), size, communicator);
+        alpha = wrp_mpi::Dot(r->Values(), z->Values(), size, communicator);
 
         //! (6)	\f$ \delta_{old} = <r_{old}, r_{old}> \f$
         delta[0] = delta[1];
@@ -413,9 +456,8 @@ void CG::solve(
         if (stop_criteria == INTERN)
             convergence_check = delta[1] / delta[0];
         else {
-            r.Norm2(&convergence_check);
-//            convergence_check = wrp_mpi::Norm2(r.Values(), size, communicator);
-//            convergence_check /= normalizer;
+            convergence_check = wrp_mpi::Norm2(r->Values(), size, communicator);
+            convergence_check /= normalizer;
         }
 
         /*!
@@ -434,7 +476,7 @@ void CG::solve(
         beta = delta[1] / delta[0];
 
         //! (8)	\f$ d_{new} = r_{new} + \beta d_{old} \f$
-        d.Update(1., z, beta);
+        d->Update(1., *z, beta);
 
         /*
          * Check for convergence stalling
@@ -461,6 +503,10 @@ void CG::solve(
     }
     iterations_num = k;
     residual_norm = convergence_check;
+
+    if (reallocate) {
+        FreeAll();
+    }
 }
 }
 
