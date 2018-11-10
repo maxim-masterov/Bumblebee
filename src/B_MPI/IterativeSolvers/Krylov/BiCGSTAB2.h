@@ -89,6 +89,21 @@ class BiCGSTAB2: public Base {
     bool reallocate;
     bool allocated;
 
+    void FreeAll() {
+        if (r != nullptr) delete r;
+        if (r_hat_0 != nullptr) delete r_hat_0;
+        if (u != nullptr) delete u;
+        if (v != nullptr) delete v;
+        if (s != nullptr) delete s;
+        if (w != nullptr) delete w;
+        if (t != nullptr) delete t;
+        if (u_hat != nullptr) delete u_hat;
+        if (r_hat != nullptr) delete r_hat;
+        if (v_hat != nullptr) delete v_hat;
+        if (s_hat != nullptr) delete s_hat;
+        if (tmp != nullptr) delete tmp;
+    }
+
 public:
 
     BiCGSTAB2(MPI_Comm _comm, bool _reallocate = false) :
@@ -113,32 +128,13 @@ public:
 
     ~BiCGSTAB2() {
         if (!reallocate) {
-            if (r != nullptr) delete r;
-            if (r_hat_0 != nullptr) delete r_hat_0;
-            if (u != nullptr) delete u;
-            if (v != nullptr) delete v;
-            if (s != nullptr) delete s;
-            if (w != nullptr) delete w;
-            if (t != nullptr) delete t;
-            if (u_hat != nullptr) delete u_hat;
-            if (r_hat != nullptr) delete r_hat;
-            if (v_hat != nullptr) delete v_hat;
-            if (s_hat != nullptr) delete s_hat;
-            if (tmp != nullptr) delete tmp;
+            FreeAll();
             allocated = false;
         }
     }
 
     /*!
      * \brief Hybrid BiConjugate Gradient Stabilized method
-     *
-     * \par For developers
-     * Method contains:
-     *  - 14 vector updates
-     *    - 4 Matrix-Vector Multiplication \n
-     *      (3 in loop, 1 out of loop)
-     *    - 9 Vector-Vector Multiplication \n
-     *      (5 in loop, 1 out of loop)
      *
      * @param Matrix Incoming matrix
      * @param x Vector of unknowns
@@ -157,13 +153,11 @@ public:
      * Preconditioned BiConjugate Gradient Stabilized (2) method uses right-preconditioned form, i.e.
      *                  \f{eqnarray*}{ A M^{-1} y =  b, \\ x = M^{-1} y \f}
      *
-     * \par For developers
-     * Method contains:
-     *  - 14 vector updates
-     *    - 4 Matrix-Vector Multiplication \n
-     *      (3 in loop, 1 out of loop)
-     *    - 9 Vector-Vector Multiplication \n
-     *      (5 in loop, 1 out of loop)
+     * The class of preconditioner should have two methods:
+     * - .IsBuilt() - to return true if preconditioner is built and false otherwise
+     * - .solve(Matrix, y, b, false) - to apply preconditioner, where \e Matrix is a original matrix,
+     *   \e y is a vector of unknowns, \e b is a vector of rhs and the last boolean indicates if preconditioner
+     *   is called from the BiCG method or not.
      *
      * @param precond Object of preconditioner
      * @param Matrix Incoming matrix
@@ -224,11 +218,9 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
     Matrix.Multiply(false, x0, *v);
-//    r = b;
     wrp_mpi::Copy(r->Values(), b.Values(), size);
-    r->Update(-1., *v, 1.);
-//    r_hat_0 = r;                            // Actually r_hat_0 is an arbitrary vector
-    wrp_mpi::Copy(r_hat_0->Values(), r->Values(), size);
+    wrp_mpi::Update(r->Values(), v->Values(), 1., -1., size);
+    wrp_mpi::Copy(r_hat_0->Values(), r->Values(), size);        // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ \alpha = \rho[0] = \omega_2 = 1\f$
     wrp_mpi::Zero(u->Values(), size);
@@ -277,8 +269,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
     }
     ++k;
 
-//    std::cout << wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator) << "\n";
-
     //! Start iterative loop
     while(1) {
 
@@ -315,11 +305,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         //! (6) \f$ \gamma = <v, \hat{r}_0> \f$, \f$ \alpha = \rho[0] / \gamma \f$
         gamma = wrp_mpi::Dot(v->Values(), r_hat_0->Values(), size, communicator);
 
-//        std::cout << "alpha: " << alpha << "\n";
-//        std::cout << "rho[0]: " << rho[0] << "\n";
-//        std::cout << "beta: " << beta << "\n";
-//        std::cout << "gamma: " << gamma << "\n";
-
         // Check for breakdown (probably may occur)
         if (gamma == 0.0) {
             if (myRank == 0)
@@ -344,8 +329,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         rho[1] = wrp_mpi::Dot(r_hat_0->Values(), s->Values(), size, communicator);
         beta = alpha * rho[1] / rho[0];
         rho[0] = rho[1];
-
-//        std::cout << rho[0] << " " << rho[1] << " " << beta << "\n";
 
         //! (11) \f$ v = s - \beta v \f$
         wrp_mpi::Update(v->Values(), s->Values(), -beta, 1., size);
@@ -394,8 +377,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         nu = reduced_l[2];
         tau = reduced_l[3];
         omega_2 = reduced_l[4];
-
-//        std::cout << omega_1 << " " << omega_2 << " " << mu << " " << nu << " " << tau << " \n";
 
         if (mu == 0.0) {
             if (myRank == 0)
@@ -471,13 +452,7 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
     residual_norm = convergence_check;
 
     if (reallocate) {
-        delete r;
-        delete r_hat_0;
-        delete u;
-        delete v;
-        delete s;
-        delete w;
-        delete t;
+        FreeAll();
     }
 }
 
@@ -490,9 +465,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
                     VectorType &b,
                     VectorType &x0) {
 
-//    double time1, time2, min_time, max_time, full_time;
-//
-//    time1 = MPI_Wtime();
     int k = 0;                          // iteration number
     double alpha = 0.;                  // part of the method
     double rho[2] = {0.};               // part of the method
@@ -519,7 +491,7 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
     int size = _Map.NumMyElements();    // local system size
 
     /*
-     * First check if preconditioner has been built. If not - through a warning
+     * First check if preconditioner has been built. If not - throw a warning
      * and call for the unpreconditioned method
      */
     if (!precond.IsBuilt()) {
@@ -548,17 +520,32 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         allocated = true;
     }
 
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for
+#endif
+    for(int n = 0; n < size; ++n) {
+        r->operator [](n) = 0.;
+        r_hat_0->operator [](n) = 0.;
+        u->operator [](n) = 0.;
+        v->operator [](n) = 0.;
+        s->operator [](n) = 0.;
+        w->operator [](n) = 0.;
+        t->operator [](n) = 0.;
+        u_hat->operator [](n) = 0.;
+        r_hat->operator [](n) = 0.;
+        v_hat->operator [](n) = 0.;
+        s_hat->operator [](n) = 0.;
+        tmp->operator [](n) = 0.;
+    }
+
     // Right preconditioner
     precond.solve(Matrix, *tmp, x0, false);
-//    x0 = tmp;
     wrp_mpi::Copy(x0.Values(), tmp->Values(), size);
 
     //! (0) \f$ r = \hat{r}_0 = b - A * x_0\f$
-//    r = (b - Matrix * x0);
     Matrix.Multiply(false, x0, *v);
-//    r = b;
     wrp_mpi::Copy(r->Values(), b.Values(), size);
-    r->Update(-1., *v, 1.);
+    wrp_mpi::Update(r->Values(), v->Values(), 1., -1, size);
     wrp_mpi::Copy(r_hat_0->Values(), r->Values(), size);            // Actually r_hat_0 is an arbitrary vector
 
     //! (1) \f$ u = 0 \f$, \f$ w = 0 \f$, \f$ v = 0 \f$, \f$ \alpha = \rho[0] = \omega_1 = \omega_2 = 1\f$
@@ -615,15 +602,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
     }
     ++k;
 
-//    time2 = MPI_Wtime();
-//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-//    if (myRank == 0) {
-//        full_time = max_time - min_time;
-//        std::cout << "Setup time: " << full_time << std::endl;
-//    }
-//
-//    time1 = MPI_Wtime();
     //! Start iterative loop
     while(1) {
 
@@ -713,7 +691,6 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
         std::cout << "gamma: " << gamma << "\n\n";
 
         //! (12) \f$ v = s - \beta v \f$
-//          v = s - beta * v;
         wrp_mpi::Update(v->Values(), s->Values(), -beta, 1., size);
 
         //! (13) \f$ w = A M^{-1} v \f$
@@ -844,15 +821,7 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
 
         ++k;
     }
-//    time2 = MPI_Wtime();
-//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-//    if (myRank == 0) {
-//        full_time = max_time - min_time;
-//        std::cout << "Solve time: " << full_time << std::endl;
-//    }
-//
-//    time1 = MPI_Wtime();
+
     precond.solve(Matrix, *tmp, x, false);
     wrp_mpi::Copy(x.Values(), tmp->Values(), size);
 
@@ -864,28 +833,8 @@ void BiCGSTAB2<MatrixType, VectorType>::solve(
     residual_norm = convergence_check;
 
     if (reallocate) {
-        delete r;
-        delete r_hat_0;
-        delete u;
-        delete v;
-        delete s;
-        delete w;
-        delete t;
-        delete u_hat;
-        delete r_hat;
-        delete v_hat;
-        delete s_hat;
-        delete tmp;
+        FreeAll();
     }
-
-//    time2 = MPI_Wtime();
-//    MPI_Reduce(&time1, &min_time, 1, MPI_DOUBLE, MPI_MIN, 0, communicator);
-//    MPI_Reduce(&time2, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, communicator);
-//    if (myRank == 0) {
-//        full_time = max_time - min_time;
-//        std::cout << "Extra time: " << full_time << std::endl;
-//    }
-//    MPI_Barrier(communicator);
 }
 }
 

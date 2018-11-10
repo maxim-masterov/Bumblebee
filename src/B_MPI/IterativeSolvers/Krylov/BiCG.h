@@ -64,18 +64,52 @@ namespace slv_mpi {
  * std::cout << "Residual: " << bicg.Residual() << std::endl;
  * \endcode
  */
+template <class MatrixType, class VectorType>
 class BiCG: public Base {
+
+    VectorType *r;
+    VectorType *r_hat_0;
+    VectorType *p;
+    VectorType *z;
+    VectorType *p_hat;
+    VectorType *z_hat;
+    VectorType *tmp;
+    bool reallocate;
+    bool allocated;
+
+    void FreeAll() {
+        if (r != nullptr) {delete r; r = nullptr;}
+        if (r_hat_0 != nullptr) {delete r_hat_0; r_hat_0 = nullptr;}
+        if (p != nullptr) {delete p; p = nullptr;}
+        if (z != nullptr) {delete z; z = nullptr;}
+        if (p_hat != nullptr) {delete p_hat; p_hat = nullptr;}
+        if (z_hat != nullptr) {delete z_hat; z_hat = nullptr;}
+        if (tmp != nullptr) {delete tmp; tmp = nullptr;}
+    }
 
 public:
 
-    BiCG(MPI_Comm _comm) :
+    BiCG(MPI_Comm _comm, bool _reallocate = false) :
         Base(_comm) {
+
+        r = nullptr;
+        r_hat_0 = nullptr;
+        p = nullptr;
+        z = nullptr;
+        p_hat = nullptr;
+        z_hat = nullptr;
+        tmp = nullptr;
+
+        reallocate = _reallocate;
+        allocated = false;
     }
-    ;
 
     ~BiCG() {
+        if (!reallocate) {
+            FreeAll();
+            allocated = false;
+        }
     }
-    ;
 
     /*!
      * \brief BiConjugate Gradient method
@@ -92,7 +126,6 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class MatrixType, class VectorType>
     void solve(
                 MatrixType &Matrix,
                 VectorType &x,
@@ -132,7 +165,7 @@ public:
      * @param b Vector of RHS
      * @param x0 Vector of initial guess
      */
-    template<class Preco, class MatrixType, class VectorType>
+    template<class Preco>
     void solve(
                 Preco &precond,
                 MatrixType &Matrix,
@@ -142,18 +175,18 @@ public:
 };
 
 template<class MatrixType, class VectorType>
-void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
-    VectorType &x,									// Vector of unknowns
-    VectorType &b,									// Vector of right hand side
-    VectorType &x0)									// Vector of initial guess
-    {
+void BiCG<MatrixType, VectorType>::solve(MatrixType &Matrix,
+                                         VectorType &x,
+                                         VectorType &b,
+                                         VectorType &x0) {
+
     int k = 0;                              // iteration number
-    double alpha = 0.;                 // part of method
+    double alpha = 0.;                      // part of method
     long double beta = 0.;                  // part of method
-    double temp = 0.;                  // helper
+    double temp = 0.;                       // helper
     long double delta[2] = {0.};            // part of the method
     double convergence_check = 0.;          // keeps new residual
-    double convergence_check_old = 0.;      // keeps old residual and used only is stalling checker is switched on
+    double convergence_check_old = 0.;      // keeps old residual and used only if stalling checker is switched on
     double normalizer = 1.;                 // To normalize residual norm
 
     /*
@@ -170,19 +203,30 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
 
     VectorType tmp(_Map);
 
+    if (!allocated || reallocate) {
+        r = new VectorType(_Map);
+        r_hat_0 = new VectorType(_Map);
+        p = new VectorType(_Map);
+        p_hat = new VectorType(_Map);
+        tmp = new VectorType(_Map);
+        allocated = true;
+    }
+
     //! (1)	\f$ p_0 = r_0 = b - A x_0 \f$
-    Matrix.Multiply(false, x0, tmp);
-    r = b;
-    r.Update(-1., tmp, 1.);
+    Matrix.Multiply(false, x0, *tmp);
+    wrp_mpi::Copy(r->Values(), b.Values(), size);
+    wrp_mpi::Update(r->Values(), tmp->Values(), 1., -1., size);
 
     //! (1')	\f$ \hat{p}_0 = \hat{r}_0 = b - A^T x_0 \f$
-    Matrix.Multiply(true, x0, tmp);
-    r_hat = b;
-    r_hat.Update(-1., tmp, 1.);
+    Matrix.Multiply(false, x0, *tmp);
+    wrp_mpi::Copy(r_hat->Values(), b.Values(), size);
+    wrp_mpi::Update(r_hat->Values(), tmp->Values(), 1., -1., size);
 
-    p = r; p_hat = r_hat;
+    wrp_mpi::Copy(p->Values(), r->Values(), size);
+    wrp_mpi::Copy(p_hat->Values(), r_hat->Values(), size);
 
     //! Set \f$ \delta_{new} = \alpha = ||r||_2^2 \f$
+    convergence_check = wrp_mpi::Dot(r_hat_0->Values(), r->Values(), size, communicator);
     r_hat.Dot(r, &convergence_check);
     delta[1] = alpha = convergence_check;
 
@@ -321,25 +365,28 @@ void BiCG::solve(MatrixType &Matrix,							// Incoming CSR matrix
     }
     iterations_num = k;
     residual_norm = convergence_check;
-    // ================================================== //
+
+    if (reallocate) {
+        FreeAll();
+    }
 }
 
-template<class Preco, class MatrixType, class VectorType>
-void BiCG::solve(Preco &precond,							// Preconditioner class
-    MatrixType &Matrix,							// Incoming CSR matrix
-    VectorType &x,									// Vector of unknowns
-    VectorType &b,									// Vector of right hand side
-    VectorType &x0)								// Vector of initial guess
-    {
+template<class MatrixType, class VectorType>
+template<class Preco>
+void BiCG<MatrixType, VectorType>::solve(Preco &precond,
+                                         MatrixType &Matrix,
+                                         VectorType &x,
+                                         VectorType &b,
+                                         VectorType &x0) {
 
     int k = 0;                              // iteration number
-     double alpha = 0.0L;               // part of the method
-    double beta = 0.;                      // part of the method
-     double delta[2] = {0.0L};			// part of the method
-     double delta_0 = 0.0L;				// part of the method
-     double temp = 0.0L;               // helper
+    long double alpha = 0.0L;               // part of the method
+    double beta = 0.;                       // part of the method
+    long double delta[2] = {0.0L};			// part of the method
+    long double delta_0 = 0.0L;				// part of the method
+    long double temp = 0.0L;                // helper
     double convergence_check = 0.;			// keeps new residual
-    double convergence_check_old = 0.;// keeps old residual and used only is stalling checker is switched on
+    double convergence_check_old = 0.;      // keeps old residual and used only if stalling checker is switched on
     double normalizer = 1.;					// To normalize residual norm
 
     /*
@@ -350,7 +397,7 @@ void BiCG::solve(Preco &precond,							// Preconditioner class
     int size = _Map.NumMyElements();        // system size
 
     /*
-     * First check if preconditioner has been built. If not - through a warning
+     * First, check if preconditioner has been built. If not - throw a warning
      * and call for the unpreconditioned method
      */
     if (!precond.IsBuilt()) {

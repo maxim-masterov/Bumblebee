@@ -20,6 +20,7 @@
 #define IS_EVEN(x) (!(x & 1))
 #define IS_ODD(x) (x & 1)
 
+#define BUMBLEBEE_USE_OPENMP
 #define USE_MAGIC_POWDER
 /*!
  * Type of convergence criteria

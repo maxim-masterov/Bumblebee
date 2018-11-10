@@ -89,6 +89,25 @@ class IBiCGSTAB2: public Base {
     bool reallocate;
     bool allocated;
 
+    void FreeAll() {
+        if (r != nullptr) delete r;
+        if (r_hat_0 != nullptr) delete r_hat_0;
+        if (u != nullptr) delete u;
+        if (v != nullptr) delete v;
+        if (s != nullptr) delete s;
+        if (w != nullptr) delete w;
+        if (t != nullptr) delete t;
+        if (u_hat != nullptr) delete u_hat;
+        if (r_hat != nullptr) delete r_hat;
+        if (v_hat != nullptr) delete v_hat;
+        if (s_hat != nullptr) delete s_hat;
+        if (w_hat != nullptr) delete w_hat;
+        if (t_hat != nullptr) delete t_hat;
+        if (p) delete p;
+        if (xi != nullptr) delete xi;
+        if (tmp != nullptr) delete tmp;
+    }
+
 public:
 
     IBiCGSTAB2(MPI_Comm _comm, bool _reallocate = false) :
@@ -116,22 +135,7 @@ public:
 
     ~IBiCGSTAB2() {
         if (!reallocate) {
-            if (r != nullptr) delete r;
-            if (r_hat_0 != nullptr) delete r_hat_0;
-            if (u != nullptr) delete u;
-            if (v != nullptr) delete v;
-            if (s != nullptr) delete s;
-            if (w != nullptr) delete w;
-            if (t != nullptr) delete t;
-            if (u_hat != nullptr) delete u_hat;
-            if (r_hat != nullptr) delete r_hat;
-            if (v_hat != nullptr) delete v_hat;
-            if (s_hat != nullptr) delete s_hat;
-            if (w_hat != nullptr) delete w_hat;
-            if (t_hat != nullptr) delete t_hat;
-            if (p) delete p;
-            if (xi != nullptr) delete xi;
-            if (tmp != nullptr) delete tmp;
+            FreeAll();
             allocated = false;
         }
     }
@@ -542,17 +546,7 @@ void IBiCGSTAB2<MatrixType, VectorType>::solve(
     residual_norm = convergence_check;
 
     if (reallocate) {
-        delete r;
-        delete r_hat_0;
-        delete u;
-        delete v;
-        delete s;
-        delete w;
-        delete t;
-        delete w_hat;
-        delete t_hat;
-        delete p;
-        delete xi;
+        FreeAll();
     }
 }
 
@@ -595,7 +589,7 @@ void IBiCGSTAB2<MatrixType, VectorType>::solve(
     int size = _Map.NumMyElements();    // local system size
 
     /*
-     * First check if preconditioner has been built. If not - through a warning
+     * First check if preconditioner has been built. If not - throw a warning
      * and call for the unpreconditioned method
      */
     if (!precond.IsBuilt()) {
@@ -960,18 +954,7 @@ void IBiCGSTAB2<MatrixType, VectorType>::solve(
     residual_norm = convergence_check;
 
     if (reallocate) {
-        delete r;
-        delete r_hat_0;
-        delete u;
-        delete v;
-        delete s;
-        delete w;
-        delete t;
-        delete w_hat;
-        delete t_hat;
-        delete p;
-        delete xi;
-        delete tmp;
+        FreeAll();
     }
 }
 }

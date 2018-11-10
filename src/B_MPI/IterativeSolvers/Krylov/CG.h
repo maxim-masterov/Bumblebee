@@ -302,7 +302,7 @@ void CG::solve(
     int size = _Map.NumMyElements();
 
     /*
-     * First check if preconditioner has been built. If not - through a warning
+     * First check if preconditioner has been built. If not - throw a warning
      * and call for the unpreconditioned method
      */
     if (!precond.IsBuilt()) {

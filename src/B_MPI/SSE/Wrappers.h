@@ -234,7 +234,7 @@ inline void Update(double *v1, double *v2, double *v3, double a, double b, doubl
     _upd_d(v1, v2, v3, a, b, c, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for OPENMP_SCHEDULE
+#pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i)
         v1[i] = a * v1[i] + b * v2[i] + c * v3[i];
@@ -329,7 +329,7 @@ inline void Update(double *v1, double *v2, double *v3, double b, double c, uint3
     _upd_d(v1, v2, v3, b, c, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for OPENMP_SCHEDULE
+#pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i)
         v1[i] = b * v2[i] + c * v3[i];
@@ -369,7 +369,7 @@ inline void Update2(double *v1, double *v2, double a, double b, double *v3, doub
         size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for OPENMP_SCHEDULE
+#pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i) {
         v1[i] = a * v1[i] + b * v2[i];
@@ -400,7 +400,7 @@ inline void Add(double *v1, double *v2, uint32_t size) {
     _add_d(v1, v2, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for OPENMP_SCHEDULE
+#pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i)
         v1[i] += v2[i];
@@ -454,7 +454,7 @@ inline double Norm2(double *v1, uint32_t size, MPI_Comm &_comm) {
     scale = 1.0 / xmax;
 
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for reduction(+:sum) num_threads(USE_MAGIC_POWDER)
+#pragma omp parallel for reduction(+:sum)
 #endif
     for(uint32_t i = 0; i < size; ++i) {
         double xs = scale * v1[i];
@@ -489,7 +489,7 @@ inline void Assign(double *v1, double const value, uint32_t size) {
     _assign_d(v1, value, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-#pragma omp parallel for OPENMP_SCHEDULE
+#pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i)
         v1[i] = value;
@@ -517,7 +517,7 @@ inline void Zero(double *v1, uint32_t size) {
     _zero_d(v1, size);
 #else
 #ifdef BUMBLEBEE_USE_OPENMP
-    #pragma omp parallel for OPENMP_SCHEDULE
+    #pragma omp parallel for
 #endif
     for(int i = 0; i < size; ++i)
         v1[i] = 0.;
