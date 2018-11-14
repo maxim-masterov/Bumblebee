@@ -29,13 +29,6 @@
 #include "B_MPI/AMG/AMG.h"
 #include "B_MPI/Assembly/Poisson.h"
 
-#include <SMesh.h>
-#include <Decomposer.h>
-#include <Distributor.h>
-
-int Full3dDecomposition(Epetra_Map *&Map, int _Imax, int _Jmax,
-    int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm);
-
 int main(int argc, char** argv) {
 
     int _nx;
@@ -105,10 +98,7 @@ int main(int argc, char** argv) {
         dimension = 6;
 
     Epetra_Map *myMap = nullptr;
-    geo::SMesh grid;
-//    Full3dDecomposition(myMap, _nx + 1, _ny + 1, _nz + 1, grid, comm);
-
-    myMap = new Epetra_Map(NumGlobalElements, 0, comm);
+    myMap = new Epetra_Map(NumGlobalElements, 0, comm);     // Or use any other decomposition
 
     /*
      * Assemble matrix (row-by-row from left to right)
@@ -134,8 +124,10 @@ int main(int argc, char** argv) {
     Epetra_Vector b(*myMap, false);
 
     double dx = 1./(_nx-1);
-//    b.PutScalar(1000. *dx * dx);
-    for(int n = 0, end = myMap->NumMyElements(); n < end; ++n) {
+#ifdef BUMBLEBEE_USE_OPENMP
+#pragma omp parallel for
+#endif
+    for(int n = 0; n < myMap->NumMyElements(); ++n) {
         b[n] = 1000. * dx * dx;
         x[n] = 0.;
     }
@@ -149,7 +141,7 @@ int main(int argc, char** argv) {
     // create a parameter list for ML options
     Teuchos::ParameterList MLList;
     slv_mpi::AMG amg;
-    slv_mpi::CG<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
+    slv_mpi::BiCGSTAB2<Epetra_CrsMatrix, Epetra_Vector> solver(comm.Comm(), false);
     ML_Epetra::SetDefaults("DD",MLList);
 
     MLList.set("max levels",7);
@@ -176,7 +168,7 @@ int main(int argc, char** argv) {
     solver.PrintHistory(true, 1);
 
     time1 = time.WallTime();
-    for(int n = 0; n < 1; ++n) {
+    for(int n = 0; n < 5; ++n) {
         x.PutScalar(0.);
         solver.solve(amg, *A, x, b, x);
 //        solver.solve(*A, x, b, x);
@@ -205,44 +197,3 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-int Full3dDecomposition(Epetra_Map *&Map, int _Imax, int _Jmax,
-    int _Kmax, geo::SMesh &grid, const Epetra_MpiComm &comm) {
-
-    int my_rank = 0;
-
-    MPI_Comm_rank(comm.Comm(), &my_rank);
-
-    dcp::Decomposer decomp;
-    double sizes[3];
-    fb::Index3 nodes;
-
-    nodes.i = _Imax;
-    nodes.j = _Jmax;
-    nodes.k = _Kmax;
-    if (_Kmax <= 1)
-        nodes.k = 1;
-
-    /* Get distributed scalar grid */
-    grid.GetDistributedScalarGrid(
-            MPI_COMM_WORLD,
-            0,
-            1,
-            sizes,
-            nodes,
-            decomp);
-
-    int num_loc_elements = grid.GetDistributor().GetMapLocToGlob().size();
-    std::vector<int> list_global_elements(num_loc_elements);
-
-    for(size_t n = 0; n < num_loc_elements; ++n)
-        list_global_elements[n] = grid.GetDistributor().GetMapLocToGlob().data()[n];
-
-    Map = new Epetra_Map(
-                            -1,
-                            num_loc_elements,
-                            list_global_elements.data(),
-                            0,
-                            comm);
-//    MPI_Barrier(comm.Comm());
-    return 0;
-}
