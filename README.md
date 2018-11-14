@@ -37,4 +37,4 @@ well up to 1536 tested cored (strong scaling). An example is shown in the figure
 consisted of a solution of a heat diffusion problem (with constant diffusion coefficient) discretized on 
 a uniform Cartesian grid with 27M DoF. Tests were performed on 2x12 cores Intel Xeon E5-2690 v3 CPU with
 basic clock speed 2.6 GHz. Code was compiled with Intel C++ compiler v16.0.3 and Intel MPI v5.1.3.
-![alt text](https://github.com/maxim-masterov/Bumblebee/blob/master/pics/bicgstab2_ml_27M.pdf "Bumblebee parallel performance")
+![alt text](https://github.com/maxim-masterov/Bumblebee/blob/master/pics/bicgstab2.png "Bumblebee parallel performance")
