@@ -19,7 +19,9 @@ the Trilinos project is wrapped in order to provide required interface.
 
 # SSE/AVX support
 The `Bumblebee` utilizes low-level intrinsics if symbol `USE_MAGIC_POWDER` is added as a 
-compilation flag.
+compilation flag. Explicit vectorization is implemented for main vector-based operations:
+update, copy, assing, multiply, divide, etc. All these operations are implemented as stand-alone 
+functions in order to simplify couling with old C-based codes (see `mpi_wrp::` namespace).
 
 # Hybrid parallelization
 The `Bumblebee` is created to support MPI parallelization strategy at first, but can also work
